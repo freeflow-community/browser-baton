@@ -21,7 +21,7 @@ stores opaque envelopes only. Envelopes are not signed yet (MVP).
 | Path | What |
 |---|---|
 | `relay/` | Single-process relay: pairing registry, per-pairing queues, WebSocket for the extension, long-poll for the CLI, plus a per-pairing CONNECT/forward **proxy** for tier 2. In-memory with a JSON snapshot (`relay/data/state.json`). |
-| `extension/` | Chrome MV3 extension. One pairing. Badge + popup with Start / Done / Decline. Exports cookies (`chrome.cookies`) and localStorage (content script) for the requested origins. For tier 2, applies a scoped PAC so the login egresses through the relay proxy. |
+| `extension/` | Chrome MV3 extension. One pairing. A request auto-opens a compact window (Start / Done / Decline); after Start, a floating panel is injected onto the login tab so Done is right there, surviving the login redirects. Exports cookies (`chrome.cookies`) and localStorage (content script) for the requested origins. For tier 2, applies a scoped PAC so the login egresses through the relay proxy. |
 | `cli/` | `handoff pair | request | report | proxy | status | revoke`. Config in `$HANDOFF_HOME` or `~/.handoff/`. |
 | `skills/browser-auth-handoff/` | **How an agent uses this.** Agent-facing skill: recognize an auth wall (agent's own judgment), request a session with the `handoff` CLI, import the bundle, verify, report. Bundles a reusable Playwright importer (`scripts/import-bundle.mjs`) and per-driver recipes for Puppeteer / chrome-devtools MCP / CDP (`reference/drivers.md`). |
 | `testsite/` | Local toy site with a cookie-auth app and a localStorage-token app. |
