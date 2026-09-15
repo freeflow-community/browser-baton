@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "Session Handoff",
+  "version": "0.1.0",
+  "description": "Hand an authenticated browser session to a paired coding agent through a relay. MVP.",
+  "minimum_chrome_version": "116",
+  "permissions": ["cookies", "storage", "tabs", "scripting", "alarms", "notifications", "proxy", "webRequest", "webRequestAuthProvider"],
+  "host_permissions": ["http://*/*", "https://*/*"],
+  "background": { "service_worker": "background.js" },
+  "action": {
+    "default_title": "Session Handoff",
+    "default_popup": "popup.html"
+  },
+  "icons": { "128": "icon.png" }
+}

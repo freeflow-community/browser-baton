@@ -1,0 +1,70 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Session Handoff</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <span class="dot" id="conn-dot"></span>
+      <strong>Session Handoff</strong>
+    </div>
+    <span class="muted" id="conn-text">…</span>
+  </header>
+
+  <section id="pair-view" hidden>
+    <p class="lead">Pair this Chrome with a coding agent. Run <code>handoff pair</code> where the agent runs and enter the code it prints.</p>
+    <label>Relay URL <input id="relay" type="url" placeholder="http://127.0.0.1:8787" spellcheck="false"></label>
+    <label>Pairing code <input id="code" type="text" placeholder="ABCD-EFGH" maxlength="9" autocomplete="off" spellcheck="false"></label>
+    <button id="pair-btn" class="primary">Pair</button>
+    <p class="error" id="pair-error" hidden></p>
+    <p class="muted small">This extension's fingerprint: <span id="ext-fp"></span></p>
+  </section>
+
+  <section id="paired-view" hidden>
+    <div class="peer">
+      <div>
+        <div class="peer-name" id="agent-name"></div>
+        <div class="muted small">fingerprint <span id="agent-fp"></span></div>
+        <div class="muted small" id="relay-text"></div>
+      </div>
+      <div class="peer-actions">
+        <button id="reconnect-btn" class="ghost small" title="Reconnect to relay">Reconnect</button>
+        <button id="unpair-btn" class="ghost small danger">Unpair</button>
+      </div>
+    </div>
+    <p class="error" id="revoked-note" hidden>This pairing was revoked. Pair again to continue.</p>
+
+    <h2>Requests</h2>
+    <div id="requests"></div>
+    <p class="muted" id="no-requests">No pending requests.</p>
+
+    <h2>Recent activity</h2>
+    <ul id="log"></ul>
+  </section>
+
+  <template id="request-tpl">
+    <div class="request">
+      <div class="request-head">
+        <span class="label"></span>
+        <span class="muted small expires"></span>
+      </div>
+      <ul class="origins"></ul>
+      <div class="status muted small"></div>
+      <div class="actions">
+        <button class="start">Start</button>
+        <button class="done primary">Done</button>
+        <button class="decline ghost">Decline</button>
+        <button class="dismiss ghost" hidden>Dismiss</button>
+      </div>
+      <p class="error req-error" hidden></p>
+    </div>
+  </template>
+
+  <script src="lib/nacl-fast.min.js"></script>
+  <script src="lib/common.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>

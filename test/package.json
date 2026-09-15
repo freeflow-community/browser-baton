@@ -1,0 +1,7 @@
+{
+  "name": "@handoff/test",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "dependencies": { "playwright": "^1.63.0", "ws": "^8.21.3" }
+}
