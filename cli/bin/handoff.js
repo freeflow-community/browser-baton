@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // handoff — Session Handoff CLI (spec §8, §13).
 //
-//   handoff pair [--name NAME] [--relay URL]
+//   handoff pair --name NAME [--relay URL]
 //   handoff request --origins a,b [--hint URL] [--label TEXT] [--timeout 30m] [--out FILE]
 //   handoff report [--request ID] --ok | --failed "reason"
 //   handoff status
@@ -10,7 +10,6 @@
 // Exit codes (request): 0 bundle written, 2 declined, 3 timeout, 4 unpaired, 1 other error.
 
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
 import * as cfg from '../src/config.js';
@@ -31,7 +30,7 @@ class CliError extends Error {
 
 function usage() {
   log(`usage:
-  handoff pair    [--name NAME] [--relay URL]
+  handoff pair    --name NAME [--relay URL]
   handoff request --origins a,b [--hint URL] [--label TEXT] [--timeout 30m] [--out FILE] [--tier 1|2] [--pairing ID|LABEL]
   handoff report  [--request ID] (--ok | --failed "reason")
   handoff proxy   --origins a,b
@@ -114,10 +113,13 @@ function mapRelayError(e) {
 // ---------------------------------------------------------------- pair
 
 async function cmdPair(values) {
+  if (!values.name || !values.name.trim()) {
+    throw new CliError('--name is required (the label the human sees to identify this agent)');
+  }
   const identity = cfg.loadIdentity();
   const relayUrl = values.relay || process.env.HANDOFF_RELAY || cfg.DEFAULT_RELAY;
   const relay = new RelayClient(relayUrl);
-  const display_name = values.name || `${os.userInfo().username}@${os.hostname()}`;
+  const display_name = values.name.trim();
 
   const begin = await relay.beginPairing({
     agent_id: identity.agent_id,

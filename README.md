@@ -88,7 +88,7 @@ ln -s "$PWD/skills/browser-auth-handoff" ~/.claude/skills/browser-auth-handoff
 ## CLI
 
 ```
-handoff pair    [--name NAME] [--relay URL]
+handoff pair    --name NAME [--relay URL]
 handoff request --origins a,b [--hint URL] [--label TEXT] [--timeout 30m] [--out FILE] [--tier 1|2]
 handoff report  [--request ID] (--ok | --failed "reason")
 handoff proxy   --origins a,b
