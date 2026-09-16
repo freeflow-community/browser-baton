@@ -10,7 +10,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { generateIdentity } from './crypto.js';
 
-export const DEFAULT_RELAY = 'http://127.0.0.1:8787';
+// Hosted relay used unless overridden with --relay or HANDOFF_RELAY.
+export const DEFAULT_RELAY = 'https://browser-relay.freeflow.im';
 
 export function home() {
   return process.env.HANDOFF_HOME || path.join(os.homedir(), '.handoff');
