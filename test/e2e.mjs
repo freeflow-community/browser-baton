@@ -259,6 +259,27 @@ try {
   const po = await proxyOut.done;
   check('tier 2: `handoff proxy` reports proxy for learned origin', /"server"/.test(po.stdout), po.stdout.trim());
 
+  // ---- signatures: Node crypto and the extension crypto must interoperate (spec §5)
+  const nodeCrypto = await import(new URL('../cli/src/crypto.js', import.meta.url));
+  const nacl = (await import('tweetnacl')).default;
+  const kp = nacl.sign.keyPair();
+  const nodePk = Buffer.from(kp.publicKey).toString('base64');
+  const nodeEnv = { v: 1, pairing_id: 'x', msg_id: 'm1', type: 'needs_session', ts: 123, from: 'agent', payload: 'Zm9v', sig: '' };
+  nodeCrypto.signEnvelope(nodeEnv, Buffer.from(kp.secretKey).toString('base64'));
+  const extCheck = await popup.evaluate(({ env, pk }) => ({
+    ok: HandoffCommon.verifyEnvelope(env, pk),
+    tampered: HandoffCommon.verifyEnvelope({ ...env, ts: env.ts + 1 }, pk),
+  }), { env: nodeEnv, pk: nodePk });
+  check('signatures: extension verifies a Node-signed envelope', extCheck.ok === true);
+  check('signatures: extension rejects a tampered envelope', extCheck.tampered === false);
+  const extSigned = await popup.evaluate(() => {
+    const k = nacl.sign.keyPair();
+    const env = { v: 1, pairing_id: 'x', msg_id: 'm2', type: 'report', ts: 456, from: 'ext', payload: 'YmFy', sig: '' };
+    HandoffCommon.signEnvelope(env, HandoffCommon.b64.encode(k.secretKey));
+    return { env, pk: HandoffCommon.b64.encode(k.publicKey) };
+  });
+  check('signatures: Node verifies an extension-signed envelope', nodeCrypto.verifyEnvelope(extSigned.env, extSigned.pk) === true);
+
   // ---- decline path
   const dec = run('request#decline', [HANDOFF, 'request', '--origins', SITE, '--label', 'decline test', '--timeout', '2m', '--out', path.join(TMP, 'never.json')]);
   await waitFor(() => popup.$('.request button.decline'), { what: 'decline button' });

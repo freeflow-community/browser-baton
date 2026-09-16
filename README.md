@@ -14,7 +14,7 @@ for the affected origins. Implements §13 of `session-handoff-spec.md`.
 ```
 
 Payloads are end-to-end encrypted (X25519 sealed boxes via tweetnacl); the relay
-stores opaque envelopes only. Envelopes are not signed yet (MVP).
+stores opaque envelopes only. Every envelope is Ed25519-signed by its sender and verified by the recipient (spec §5).
 
 ## Layout
 
@@ -99,7 +99,7 @@ same origins while one is pending resumes it (same `request_id`) instead of rais
 
 Superset of Playwright `storageState` (spec §6): `cookies[]`, `origins_storage[].localStorage[]`,
 plus `origins`, `env` (userAgent, acceptLanguage, timezone, viewport). `sessionStorage`,
-`indexedDB`, silent renewal, per-pairing policy and the signature scheme are deferred per §13.
+`indexedDB`, silent renewal, and per-pairing policy are deferred per §13.
 
 ## Tier 2 (IP-bound sessions)
 

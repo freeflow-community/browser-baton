@@ -167,7 +167,8 @@ async function handleWsFrame(sock, data) {
 async function sendToAgent(type, payload) {
   const pairing = await getPairing();
   if (!pairing || pairing.revoked) throw new Error('not paired');
-  const envelope = C.makeEnvelope({ pairing_id: pairing.pairing_id, type, payload, recipientPkB64: pairing.agent.agent_enc_pk });
+  const identity = await getIdentity();
+  const envelope = C.makeEnvelope({ pairing_id: pairing.pairing_id, type, payload, recipientPkB64: pairing.agent.agent_enc_pk, signSkB64: identity.sign_sk });
   const res = await fetch(`${pairing.relay_http}/v1/pairings/${pairing.pairing_id}/messages`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', authorization: `Bearer ${pairing.token}` },
@@ -209,6 +210,12 @@ function denylisted(origins) {
 async function handleEnvelope(env) {
   if (!env || env.from !== 'agent') return;
   if (await alreadySeen(env.msg_id)) return;
+  const pairing = await getPairing();
+  if (!pairing || pairing.revoked) return;
+  if (!C.verifyEnvelope(env, pairing.agent.agent_sign_pk)) {
+    await appendLog({ kind: 'error', text: `Dropped ${env.type}: bad signature` });
+    return;
+  }
   const identity = await getIdentity();
   let payload;
   try {
