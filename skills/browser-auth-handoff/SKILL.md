@@ -38,6 +38,38 @@ human's Chrome extension.
 Do not try to start the relay, pair, or drive the human's Chrome yourself. Pairing is a
 deliberate human action.
 
+## Two modes
+
+- **Ephemeral (per run):** each request writes a bundle you import into a fresh browser
+  context, used for that run and discarded. Good for one-off jobs. This is the loop below.
+- **Shared browser (recommended on a persistent box):** one long-lived Chrome with a
+  persistent profile that every agent session attaches to over CDP. Credentials load into it
+  once and stay; agents don't re-import per request. Use this when the same box runs many
+  sessions over time.
+
+**Shared browser setup:**
+
+```sh
+$HANDOFF browser start            # one persistent Chrome; prints its CDP endpoint
+$HANDOFF browser endpoint         # e.g. http://127.0.0.1:9222
+```
+
+Attach your driver to that endpoint instead of launching your own browser — Playwright
+`chromium.connectOverCDP(endpoint)`, Puppeteer `connect`, or point the chrome-devtools MCP at
+it. Open your own tab in `browser.contexts()[0]`; all agents share the logged-in profile.
+
+When you hit a wall, request **with `--load`** so the session drops straight into the shared
+browser (no per-request import), then reload your tab:
+
+```sh
+$HANDOFF request --origins https://app.example.com --hint https://app.example.com/login --load
+# → human logs in → cookies + localStorage injected into the shared Chrome → reload your tab
+```
+
+Caveats: the shared profile is one cookie jar, so agents share identity on a site (if one logs
+out, all lose it). Only one Chrome owns the profile — agents connect, they don't each launch.
+Tier 2 (IP-bound) sessions aren't proxied in the shared browser yet, so they may be rejected.
+
 ## The loop
 
 1. **Identify the origins that need auth.** Always the site's own origin

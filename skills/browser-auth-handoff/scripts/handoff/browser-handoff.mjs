@@ -15,6 +15,8 @@ import { parseArgs } from 'node:util';
 import * as cfg from './config.js';
 import { RelayClient, RelayError } from './relay.js';
 import { fingerprint, makeEnvelope, open, verifyEnvelope } from './crypto.js';
+import { ensureBrowser, browserStatus, stopBrowser } from './browser.js';
+import { loadBundleIntoBrowser } from './cdp.js';
 
 const EXIT = { OK: 0, ERROR: 1, DECLINED: 2, TIMEOUT: 3, UNPAIRED: 4 };
 const POLL_WAIT_S = 30;
@@ -31,13 +33,18 @@ class CliError extends Error {
 function usage() {
   log(`usage:
   browser-handoff pair    --name NAME [--relay URL]
-  browser-handoff request --origins a,b [--hint URL] [--label TEXT] [--timeout 30m] [--out FILE] [--tier 1|2] [--pairing ID|LABEL]
+  browser-handoff request --origins a,b [--hint URL] [--label TEXT] [--timeout 30m] [--out FILE] [--tier 1|2] [--pairing ID|LABEL] [--load]
   browser-handoff report  [--request ID] (--ok | --failed "reason")
   browser-handoff proxy   --origins a,b
+  browser-handoff browser <start|status|stop|endpoint> [--port N] [--profile DIR] [--chrome PATH] [--headed]
+  browser-handoff load    --bundle FILE           inject a bundle into the shared browser
   browser-handoff agents                          list paired browsers
   browser-handoff use     <ID|LABEL>              set the default browser for requests
   browser-handoff status
   browser-handoff revoke  [ID|LABEL]
+
+Shared browser: run one persistent Chrome (\`browser start\`), attach agents over CDP
+(its endpoint), and use \`request --load\` so a walled login loads into it automatically.
 
 Multi-browser: pair each browser (optionally --label NAME); target one with
 --pairing <id|label>, or set a default with \`browser-handoff use\`.
@@ -300,19 +307,37 @@ async function cmdRequest(values) {
     }
     const bundle = outcome.payload.bundle;
     if (!bundle || typeof bundle !== 'object') throw new CliError('session_bundle without a bundle');
-    fs.mkdirSync(path.dirname(path.resolve(outFile)), { recursive: true });
-    fs.writeFileSync(outFile, JSON.stringify(bundle, null, 2) + '\n', { mode: 0o600 });
-    cfg.setLastRequest({ request_id: req.request_id, origins, outcome: 'bundle', out: path.resolve(outFile) });
     const proxied = Boolean(outcome.payload.proxied);
     if (proxied) learnOrigins(origins, { tier: 2, tier2_candidate: false }); // confirmed: these need the proxy
-    log(`bundle written to ${outFile}: ${bundle.cookies?.length || 0} cookie(s), ${(bundle.origins_storage || []).length} origin storage record(s)${proxied ? ' (proxied — reuse the proxy below)' : ''}`);
+
+    // With --load, inject straight into the shared browser and skip writing the
+    // bundle to disk (unless --out was given). Otherwise write it for the caller.
+    let outPath = null;
+    if (values.out || !values.load) {
+      fs.mkdirSync(path.dirname(path.resolve(outFile)), { recursive: true });
+      fs.writeFileSync(outFile, JSON.stringify(bundle, null, 2) + '\n', { mode: 0o600 });
+      outPath = path.resolve(outFile);
+    }
+    let loaded = null;
+    let endpoint;
+    if (values.load) {
+      const br = await ensureBrowser(browserOpts(values));
+      loaded = await loadBundleIntoBrowser(br.port, bundle);
+      endpoint = br.endpoint;
+      log(`loaded into the shared browser at ${endpoint}: ${loaded.cookies} cookie(s), ${loaded.localStorage} localStorage item(s)`);
+      if (proxied) log('warning: this is a tier-2 (IP-bound) session; the shared browser is not proxied, so it may be rejected');
+    }
+    cfg.setLastRequest({ request_id: req.request_id, origins, outcome: 'bundle', out: outPath, loaded: Boolean(loaded) });
+    log(`bundle: ${bundle.cookies?.length || 0} cookie(s), ${(bundle.origins_storage || []).length} origin storage record(s)${outPath ? ` → ${outPath}` : ''}${proxied ? ' (proxied)' : ''}`);
     process.stdout.write(
       JSON.stringify({
         request_id: req.request_id,
         proxied,
         proxy: proxied ? proxySettings(pairing) : undefined,
         silent: Boolean(outcome.payload.silent),
-        out: path.resolve(outFile),
+        out: outPath,
+        loaded: loaded || undefined,
+        endpoint,
       }) + '\n',
     );
     return EXIT.OK;
@@ -418,6 +443,57 @@ async function cmdRevoke(values, positional) {
   return EXIT.OK;
 }
 
+// Options for the shared browser supervisor.
+function browserOpts(values) {
+  return {
+    port: values.port ? Number(values.port) : undefined,
+    profile: values.profile,
+    chrome: values.chrome,
+    headless: values.headed ? false : (values.headless ? true : undefined),
+  };
+}
+
+async function cmdBrowser(values, positional) {
+  const sub = positional[0] || 'status';
+  if (sub === 'start') {
+    const br = await ensureBrowser(browserOpts(values));
+    log(`shared browser ${br.alreadyRunning ? 'already running' : 'started'} at ${br.endpoint} (profile: ${br.profile})`);
+    process.stdout.write(JSON.stringify({ endpoint: br.endpoint, port: br.port, profile: br.profile }) + '\n');
+    return EXIT.OK;
+  }
+  if (sub === 'status') {
+    const s = await browserStatus();
+    log(s.running ? `running at ${s.endpoint} (profile: ${s.profile})` : 'not running');
+    process.stdout.write(JSON.stringify(s) + '\n');
+    return EXIT.OK;
+  }
+  if (sub === 'endpoint') {
+    const s = await browserStatus();
+    if (!s.running) throw new CliError('shared browser not running (run `browser-handoff browser start`)');
+    process.stdout.write(s.endpoint + '\n');
+    return EXIT.OK;
+  }
+  if (sub === 'stop') {
+    stopBrowser();
+    log('shared browser stopped');
+    return EXIT.OK;
+  }
+  throw new CliError(`unknown browser subcommand: ${sub} (start|status|stop|endpoint)`);
+}
+
+async function cmdLoad(values) {
+  const file = values.bundle || values.out || cfg.getLastRequest()?.out;
+  if (!file) throw new CliError('--bundle FILE is required (or a previous request with --out)');
+  let bundle;
+  try { bundle = JSON.parse(fs.readFileSync(file, 'utf8')); }
+  catch (e) { throw new CliError(`could not read bundle ${file}: ${e.message}`); }
+  const br = await ensureBrowser(browserOpts(values));
+  const loaded = await loadBundleIntoBrowser(br.port, bundle);
+  log(`loaded ${file} into the shared browser at ${br.endpoint}: ${loaded.cookies} cookie(s), ${loaded.localStorage} localStorage item(s)`);
+  process.stdout.write(JSON.stringify({ endpoint: br.endpoint, loaded }) + '\n');
+  return EXIT.OK;
+}
+
 async function cmdUse(values, positional) {
   const pairing = requirePairing({ pairing: positional[0] || values.pairing });
   cfg.setDefaultPairing(pairing.pairing_id);
@@ -444,6 +520,13 @@ async function main() {
       request: { type: 'string' },
       ok: { type: 'boolean' },
       failed: { type: 'string' },
+      load: { type: 'boolean' },        // inject the bundle into the shared browser
+      bundle: { type: 'string' },       // bundle file for `load`
+      port: { type: 'string' },         // shared browser CDP port
+      profile: { type: 'string' },      // shared browser user-data-dir
+      chrome: { type: 'string' },       // path to the Chrome binary
+      headless: { type: 'boolean' },
+      headed: { type: 'boolean' },
       help: { type: 'boolean', short: 'h' },
     },
   });
@@ -457,6 +540,8 @@ async function main() {
     case 'request': return cmdRequest(values);
     case 'report': return cmdReport(values);
     case 'proxy': return cmdProxy(values);
+    case 'browser': return cmdBrowser(values, rest);
+    case 'load': return cmdLoad(values);
     case 'status': case 'agents': return cmdStatus(values);
     case 'use': return cmdUse(values, rest);
     case 'revoke': return cmdRevoke(values, rest);

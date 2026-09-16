@@ -13,6 +13,7 @@
     "relay": "node relay/server.js",
     "testsite": "node testsite/server.js",
     "test:e2e": "node test/e2e.mjs",
-    "check": "node --check relay/server.js && node --check skills/browser-auth-handoff/scripts/handoff/browser-handoff.mjs && node --check extension/background.js && node --check extension/popup.js && node --check extension/lib/common.js && node --check testsite/server.js && node --check test/agent-sim.mjs && node --check test/e2e.mjs"
+    "check": "node --check relay/server.js && node --check skills/browser-auth-handoff/scripts/handoff/browser-handoff.mjs && node --check skills/browser-auth-handoff/scripts/handoff/browser.js && node --check skills/browser-auth-handoff/scripts/handoff/cdp.js && node --check extension/background.js && node --check extension/popup.js && node --check extension/lib/common.js && node --check testsite/server.js && node --check test/agent-sim.mjs && node --check test/e2e.mjs && node --check test/shared-browser.mjs",
+    "test:shared": "node test/shared-browser.mjs"
   }
 }

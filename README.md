@@ -95,6 +95,8 @@ browser-handoff pair    --name NAME [--relay URL]
 browser-handoff request --origins a,b [--hint URL] [--label TEXT] [--timeout 30m] [--out FILE] [--tier 1|2]
 browser-handoff report  [--request ID] (--ok | --failed "reason")
 browser-handoff proxy   --origins a,b
+browser-handoff browser <start|status|stop|endpoint>   # shared browser (see below)
+browser-handoff load    --bundle FILE                  # inject a bundle into the shared browser
 browser-handoff status
 browser-handoff revoke  [PAIRING_ID]
 ```
@@ -143,13 +145,42 @@ Design in `multi-agent-spec.md`; Phase 1 is implemented.
   can't tell which agent a connection belongs to; a second tier-2 Start is refused until the
   first finishes.
 
+## Shared browser (persistent box)
+
+For a long-lived box that runs many agent sessions, don't import a bundle per request. Run
+**one persistent Chrome** that agents attach to over CDP; credentials load into its profile
+once and stay.
+
+```sh
+browser-handoff browser start          # one Chrome, persistent profile, remote debugging
+browser-handoff browser endpoint       # e.g. http://127.0.0.1:9222
+```
+
+Agents attach to that endpoint instead of launching their own browser (Playwright
+`chromium.connectOverCDP(endpoint)`, Puppeteer `connect`, or the chrome-devtools MCP) and open
+a tab in the shared profile. When an agent hits a wall, it requests **with `--load`** so the
+session is injected straight into the shared browser (cookies via CDP `Storage.setCookies`,
+localStorage via a throwaway tab), no per-request import:
+
+```sh
+browser-handoff request --origins https://app.example.com --hint https://app.example.com/login --load
+```
+
+Config: `BROWSER_HANDOFF_CHROME` (path to Chrome/Chromium, if not auto-found), `--port`
+(default 9222), `--profile` (default `~/.handoff/browser-profile`), `--headed` (default headless).
+
+Caveats: the shared profile is one cookie jar, so concurrent agents share identity per site;
+one Chrome owns the profile (agents connect, they don't each launch); tier-2 (IP-bound)
+sessions are not proxied in the shared browser yet.
+
 ## Tests
 
 ```sh
-npm run test:e2e        # HEADED=1 to watch the browser
+npm run test:e2e        # extension + relay + CLI, end to end (HEADED=1 to watch)
+npm run test:shared     # shared-browser mode: CDP credential loader (7 checks)
 ```
 
-Starts a relay and the test site on private ports, launches Chromium with the extension,
+The e2e starts a relay and the test site on private ports, launches Chromium with the extension,
 pairs through the popup, logs the "human" in, runs the agent sim against both apps, kills a
 pending `request` and re-runs it to prove it resumes, restarts Chromium to prove the pairing
 survives, runs a full **tier-2** flow (PAC applied on Start, login and agent traffic both
