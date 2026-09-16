@@ -1,8 +1,8 @@
-// Popup UI: pairing form, pending requests (Start / Done / Decline), activity log.
+// Popup UI: registered agents (add / rename / revoke), pending requests labeled
+// by the requesting agent, and the activity log.
 
 const $ = (sel) => document.querySelector(sel);
 
-// Opened as a standalone window (auto-popped on a request) vs. the toolbar popup.
 if (new URLSearchParams(location.search).has('window')) document.body.classList.add('windowed');
 
 function call(type, extra = {}) {
@@ -16,9 +16,7 @@ function call(type, extra = {}) {
   });
 }
 
-function fmtTime(ms) {
-  return new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-}
+const fmtTime = (ms) => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
 function timeLeft(expiresAtSec) {
   if (typeof expiresAtSec !== 'number') return '';
@@ -29,20 +27,17 @@ function timeLeft(expiresAtSec) {
   return `${Math.floor(s / 3600)}h ${Math.ceil((s % 3600) / 60)}m left`;
 }
 
+const CONN_TEXT = { online: 'online', connecting: 'connecting…', offline: 'offline', revoked: 'revoked' };
+
 let busy = false;
 
-function renderConn(conn) {
-  const dot = $('#conn-dot');
-  const text = $('#conn-text');
-  const state = conn?.state || 'unpaired';
-  dot.className = `dot ${state}`;
-  text.textContent = {
-    online: 'connected to relay',
-    connecting: 'connecting…',
-    offline: `offline — retrying${conn?.reason ? ` (${conn.reason})` : ''}`,
-    revoked: 'pairing revoked',
-    unpaired: 'not paired',
-  }[state] || state;
+function renderSummary(agents) {
+  const online = agents.filter((a) => a.conn?.state === 'online').length;
+  const dot = $('#summary-dot');
+  dot.className = `dot ${online ? 'online' : agents.length ? 'offline' : ''}`;
+  $('#summary-text').textContent = agents.length
+    ? `${agents.length} agent${agents.length > 1 ? 's' : ''}, ${online} online`
+    : 'no agents';
 }
 
 function renderRequests(state) {
@@ -57,6 +52,7 @@ function renderRequests(state) {
     if (r.state === 'sent') node.classList.add('sent');
     if (r.state === 'reported') node.classList.add(r.result?.ok ? 'reported-ok' : 'reported-bad');
     node.querySelector('.label').textContent = r.task_label || 'Agent needs a session';
+    node.querySelector('.from').textContent = `from ${r.agent_name || 'agent'}${r.tier === 2 ? ' · tier 2' : ''}${r.agent_context ? ` · ${r.agent_context}` : ''}`;
     node.querySelector('.expires').textContent = r.state === 'pending' || r.state === 'started' ? timeLeft(r.expires_at) : fmtTime(r.sent_at || r.received_at);
     const ul = node.querySelector('.origins');
     for (const o of r.origins) {
@@ -95,19 +91,63 @@ async function act(node, type, request_id) {
   if (busy) return;
   busy = true;
   const err = node.querySelector('.req-error');
-  err.hidden = true;
+  if (err) err.hidden = true;
   for (const b of node.querySelectorAll('button')) b.disabled = true;
   if (type === 'done') node.querySelector('.status').textContent = 'Exporting cookies and localStorage…';
   try {
     await call(type, { request_id });
   } catch (e) {
-    err.textContent = e.message;
-    err.hidden = false;
+    if (err) { err.textContent = e.message; err.hidden = false; }
     for (const b of node.querySelectorAll('button')) b.disabled = false;
   } finally {
     busy = false;
     refresh();
   }
+}
+
+function renderAgents(agents) {
+  const container = $('#agents');
+  container.textContent = '';
+  $('#no-agents').hidden = agents.length > 0;
+  const tpl = $('#agent-tpl');
+  for (const a of agents) {
+    const node = tpl.content.firstElementChild.cloneNode(true);
+    node.querySelector('.dot').className = `dot ${a.conn?.state || 'connecting'}`;
+    node.querySelector('.name').textContent = a.label || a.agent?.display_name || 'agent';
+    const fp = a.agent_fingerprint || '';
+    node.querySelector('.sub').textContent = `${CONN_TEXT[a.conn?.state] || a.conn?.state || ''} · ${a.relay_http} · ${fp}`;
+    node.querySelector('.rename').onclick = () => startRename(node, a);
+    node.querySelector('.revoke').onclick = () => revokeAgent(a);
+    container.appendChild(node);
+  }
+}
+
+function startRename(node, agent) {
+  const meta = node.querySelector('.meta');
+  const input = document.createElement('input');
+  input.className = 'rename-input';
+  input.value = agent.label || '';
+  const nameEl = node.querySelector('.name');
+  nameEl.replaceWith(input);
+  input.focus();
+  input.select();
+  const commit = async () => {
+    const label = input.value.trim();
+    if (label && label !== agent.label) {
+      try { await call('rename', { pairing_id: agent.pairing_id, label }); } catch { /* shown on refresh */ }
+    }
+    refresh();
+  };
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') refresh(); });
+  input.addEventListener('blur', commit);
+}
+
+async function revokeAgent(agent) {
+  if (busy) return;
+  busy = true;
+  try { await call('revoke', { pairing_id: agent.pairing_id }); } catch { /* shown on refresh */ }
+  busy = false;
+  refresh();
 }
 
 function renderLog(log) {
@@ -132,25 +172,26 @@ async function refresh() {
   try {
     state = await call('getState');
   } catch (e) {
-    $('#conn-text').textContent = e.message;
+    $('#summary-text').textContent = e.message;
     return;
   }
-  renderConn(state.conn);
   $('#ext-fp').textContent = state.identity.fingerprint;
-  const paired = Boolean(state.pairing);
-  $('#pair-view').hidden = paired;
-  $('#paired-view').hidden = !paired;
-  if (!paired) {
-    if (!$('#relay').value) $('#relay').value = state.default_relay;
-    return;
-  }
-  $('#agent-name').textContent = state.pairing.agent?.display_name || state.pairing.agent?.agent_id;
-  $('#agent-fp').textContent = state.pairing.agent_fingerprint;
-  $('#relay-text').textContent = `via ${state.pairing.relay_http}`;
-  $('#revoked-note').hidden = !state.pairing.revoked;
+  renderSummary(state.agents);
+  renderAgents(state.agents);
   renderRequests(state);
   renderLog(state.log);
+  // Default the relay field and auto-open the add form when there are no agents.
+  if (!$('#relay').value) $('#relay').value = state.default_relay;
+  if (!state.agents.length && $('#add-form').hidden) toggleAddForm(true);
 }
+
+function toggleAddForm(show) {
+  const form = $('#add-form');
+  form.hidden = show === undefined ? !form.hidden : !show;
+  $('#add-toggle').textContent = form.hidden ? '+ Add agent' : '− Cancel';
+}
+
+$('#add-toggle').onclick = () => toggleAddForm();
 
 $('#pair-btn').onclick = async () => {
   const btn = $('#pair-btn');
@@ -159,8 +200,10 @@ $('#pair-btn').onclick = async () => {
   btn.disabled = true;
   btn.textContent = 'Pairing…';
   try {
-    await call('pair', { relay: $('#relay').value.trim(), code: $('#code').value.trim() });
+    await call('pair', { relay: $('#relay').value.trim(), code: $('#code').value.trim(), label: $('#label').value.trim() });
     $('#code').value = '';
+    $('#label').value = '';
+    toggleAddForm(false);
   } catch (e) {
     err.textContent = e.message;
     err.hidden = false;
@@ -171,14 +214,8 @@ $('#pair-btn').onclick = async () => {
   }
 };
 $('#code').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('#pair-btn').click(); });
-$('#unpair-btn').onclick = async () => {
-  try { await call('unpair'); } catch (e) { $('#conn-text').textContent = e.message; }
-  refresh();
-};
-$('#reconnect-btn').onclick = async () => {
-  try { await call('reconnect'); } catch { /* shown via state */ }
-  refresh();
-};
+
+$('#summary-dot').onclick = async () => { try { await call('reconnect'); } catch { /* ignore */ } refresh(); };
 
 chrome.storage.onChanged.addListener(() => { if (!busy) refresh(); });
 setInterval(() => { if (!busy) refresh(); }, 5000);

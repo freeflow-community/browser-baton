@@ -38,7 +38,25 @@ async function getIdentity() {
   return identity;
 }
 
-const getPairing = () => store.get('pairing', null);
+// Multi-agent: an extension profile holds many pairings, keyed by pairing_id.
+const getPairings = () => store.get('pairings', {});
+async function getPairing(id) {
+  if (!id) return null;
+  const p = await getPairings();
+  return p[id] || null;
+}
+async function putPairing(rec) {
+  const p = await getPairings();
+  p[rec.pairing_id] = rec;
+  await store.set({ pairings: p });
+}
+async function deletePairingRecord(id) {
+  const p = await getPairings();
+  delete p[id];
+  await store.set({ pairings: p });
+}
+const agentName = (pairing) => pairing?.label || pairing?.agent?.display_name || pairing?.agent?.agent_id?.slice(0, 8) || 'agent';
+
 const getRequests = () => store.get('requests', {});
 
 async function setRequests(requests) {
@@ -46,8 +64,16 @@ async function setRequests(requests) {
   await updateBadge(requests);
 }
 
-async function setConn(state, extra = {}) {
-  await store.set({ conn: { state, at: Date.now(), ...extra } });
+// Per-pairing connection state for the popup.
+async function setConn(pairingId, state, extra = {}) {
+  const c = await store.get('connState', {});
+  c[pairingId] = { state, at: Date.now(), ...extra };
+  await store.set({ connState: c });
+}
+async function clearConn(pairingId) {
+  const c = await store.get('connState', {});
+  delete c[pairingId];
+  await store.set({ connState: c });
 }
 
 async function appendLog(entry) {
@@ -63,109 +89,127 @@ async function updateBadge(requests) {
 }
 
 // ---------------------------------------------------------------- relay transport
+//
+// One WebSocket per pairing (multi-agent, spec §4.2). Each socket authenticates
+// its pairing's token and reconnects independently with exponential backoff.
 
-let ws = null;
-let backoffMs = 1000;
-let reconnectTimer = null;
-let pingTimer = null;
-let connectInFlight = null;
+const conns = new Map(); // pairing_id -> { ws, backoffMs, pingTimer, reconnectTimer, connecting }
 
-function stopPing() {
-  clearInterval(pingTimer);
-  pingTimer = null;
+function connState(id) {
+  if (!conns.has(id)) conns.set(id, { ws: null, backoffMs: 1000, pingTimer: null, reconnectTimer: null, connecting: null });
+  return conns.get(id);
 }
 
-// Reentrant-safe: the service worker may call this from several events at once
-// (top-level boot, onStartup, alarms); only one socket may exist per worker.
-function connect() {
-  if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return Promise.resolve();
-  if (connectInFlight) return connectInFlight;
-  connectInFlight = doConnect().finally(() => { connectInFlight = null; });
-  return connectInFlight;
+function stopPing(id) {
+  const cs = conns.get(id);
+  if (cs) { clearInterval(cs.pingTimer); cs.pingTimer = null; }
 }
 
-async function doConnect() {
-  const pairing = await getPairing();
+async function connectAll() {
+  const pairings = await getPairings();
+  const live = new Set(Object.keys(pairings).filter((id) => !pairings[id].revoked));
+  for (const id of live) connectPairing(id);
+  for (const id of [...conns.keys()]) if (!live.has(id)) disconnectPairing(id, 1000, 'removed');
+}
+
+function connectPairing(id) {
+  const cs = connState(id);
+  if (cs.ws && (cs.ws.readyState === WebSocket.OPEN || cs.ws.readyState === WebSocket.CONNECTING)) return;
+  if (cs.connecting) return;
+  cs.connecting = doConnectPairing(id).finally(() => { cs.connecting = null; });
+}
+
+async function doConnectPairing(id) {
+  const pairing = await getPairing(id);
   if (!pairing || pairing.revoked) return;
-  if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
-  clearTimeout(reconnectTimer);
-  await setConn('connecting');
+  const cs = connState(id);
+  if (cs.ws && (cs.ws.readyState === WebSocket.OPEN || cs.ws.readyState === WebSocket.CONNECTING)) return;
+  clearTimeout(cs.reconnectTimer);
+  await setConn(id, 'connecting');
   let sock;
   try {
     sock = new WebSocket(pairing.relay_ws);
   } catch (e) {
-    await setConn('offline', { error: e.message });
-    scheduleReconnect();
+    await setConn(id, 'offline', { error: e.message });
+    scheduleReconnect(id);
     return;
   }
-  ws = sock;
+  cs.ws = sock;
   sock.onopen = () => sock.send(JSON.stringify({ type: 'auth', token: pairing.token }));
   sock.onmessage = (ev) => {
-    if (ws !== sock) return; // superseded socket
-    handleWsFrame(sock, ev.data).catch((e) => console.error('[handoff] ws frame error', e));
+    if (cs.ws !== sock) return; // superseded
+    handleWsFrame(id, sock, ev.data).catch((e) => console.error('[handoff] ws frame error', e));
   };
   sock.onerror = () => { /* onclose follows */ };
   sock.onclose = async (ev) => {
-    if (ws !== sock) return; // a newer socket owns the connection state
-    ws = null;
-    stopPing();
-    if (ev.code === 4001) {
-      await markRevoked(ev.reason || 'unpaired');
-      return;
-    }
-    await setConn('offline', { code: ev.code, reason: ev.reason });
-    scheduleReconnect();
+    if (cs.ws !== sock) return;
+    cs.ws = null;
+    stopPing(id);
+    if (ev.code === 4001) { await markRevoked(id, ev.reason || 'unpaired'); return; }
+    await setConn(id, 'offline', { code: ev.code, reason: ev.reason });
+    scheduleReconnect(id);
   };
 }
 
-function scheduleReconnect() {
-  clearTimeout(reconnectTimer);
-  reconnectTimer = setTimeout(() => connect(), backoffMs);
-  backoffMs = Math.min(backoffMs * 2, 60_000);
+function scheduleReconnect(id) {
+  const cs = connState(id);
+  clearTimeout(cs.reconnectTimer);
+  cs.reconnectTimer = setTimeout(() => connectPairing(id), cs.backoffMs);
+  cs.backoffMs = Math.min(cs.backoffMs * 2, 60_000);
 }
 
-async function markRevoked(reason) {
-  const pairing = await getPairing();
-  if (pairing) await store.set({ pairing: { ...pairing, revoked: true, revoked_at: Date.now() } });
-  await setConn('revoked', { reason });
-  await appendLog({ kind: 'revoked', text: `Pairing revoked (${reason})` });
-  await setRequests({});
-  await clearProxy();
+function disconnectPairing(id, code = 1000, reason = '') {
+  const cs = conns.get(id);
+  if (!cs) return;
+  clearTimeout(cs.reconnectTimer);
+  stopPing(id);
+  if (cs.ws) { try { cs.ws.close(code, reason); } catch { /* ignore */ } }
+  conns.delete(id);
 }
 
-async function handleWsFrame(sock, data) {
+async function markRevoked(id, reason) {
+  const pairing = await getPairing(id);
+  if (pairing) await putPairing({ ...pairing, revoked: true, revoked_at: Date.now() });
+  await setConn(id, 'revoked', { reason });
+  await appendLog({ kind: 'revoked', text: `Agent ${agentName(pairing)} pairing revoked (${reason})` });
+  await dropRequestsForPairing(id);
+  disconnectPairing(id, 4001, 'revoked');
+}
+
+async function handleWsFrame(id, sock, data) {
   let msg;
   try { msg = JSON.parse(data); } catch { return; }
+  const cs = connState(id);
   switch (msg.type) {
     case 'ready':
-      backoffMs = 1000;
-      await setConn('online');
-      stopPing();
-      pingTimer = setInterval(() => {
+      cs.backoffMs = 1000;
+      await setConn(id, 'online');
+      stopPing(id);
+      cs.pingTimer = setInterval(() => {
         if (sock.readyState === WebSocket.OPEN) sock.send(JSON.stringify({ type: 'ping' }));
       }, WS_PING_MS);
       break;
     case 'message':
-      await handleEnvelope(msg.envelope);
+      await handleEnvelope(id, msg.envelope);
       if (sock.readyState === WebSocket.OPEN) sock.send(JSON.stringify({ type: 'ack', msg_id: msg.envelope.msg_id }));
       break;
     case 'revoked':
-      await markRevoked('revoked');
+      await markRevoked(id, 'revoked');
       break;
     case 'pong':
     case 'sent':
       break;
     case 'error':
       console.warn('[handoff] relay error', msg);
-      if (msg.error === 'unpaired') await markRevoked('unpaired');
+      if (msg.error === 'unpaired') await markRevoked(id, 'unpaired');
       break;
     default:
       break;
   }
 }
 
-async function sendToAgent(type, payload) {
-  const pairing = await getPairing();
+async function sendToAgent(pairingId, type, payload) {
+  const pairing = await getPairing(pairingId);
   if (!pairing || pairing.revoked) throw new Error('not paired');
   const identity = await getIdentity();
   const envelope = C.makeEnvelope({ pairing_id: pairing.pairing_id, type, payload, recipientPkB64: pairing.agent.agent_enc_pk, signSkB64: identity.sign_sk });
@@ -175,7 +219,7 @@ async function sendToAgent(type, payload) {
     body: JSON.stringify(envelope),
   });
   if (res.status === 401 || res.status === 404 || res.status === 410) {
-    await markRevoked('unpaired');
+    await markRevoked(pairingId, 'unpaired');
     throw new Error('pairing was revoked');
   }
   if (!res.ok) throw new Error(`relay rejected message (${res.status})`);
@@ -207,13 +251,13 @@ function denylisted(origins) {
   });
 }
 
-async function handleEnvelope(env) {
+async function handleEnvelope(pairingId, env) {
   if (!env || env.from !== 'agent') return;
   if (await alreadySeen(env.msg_id)) return;
-  const pairing = await getPairing();
+  const pairing = await getPairing(pairingId);
   if (!pairing || pairing.revoked) return;
   if (!C.verifyEnvelope(env, pairing.agent.agent_sign_pk)) {
-    await appendLog({ kind: 'error', text: `Dropped ${env.type}: bad signature` });
+    await appendLog({ kind: 'error', text: `Dropped ${env.type} from ${agentName(pairing)}: bad signature` });
     return;
   }
   const identity = await getIdentity();
@@ -226,19 +270,21 @@ async function handleEnvelope(env) {
   }
   switch (env.type) {
     case 'needs_session':
-      return onNeedsSession(payload);
+      return onNeedsSession(pairingId, payload);
     case 'report':
-      return onReport(payload);
+      return onReport(pairingId, payload);
     case 'revoke_session':
-      await appendLog({ kind: 'revoke_session', text: `Agent asks you to log out of ${(payload.origins || []).join(', ')}` });
+      await appendLog({ kind: 'revoke_session', text: `${agentName(pairing)} asks you to log out of ${(payload.origins || []).join(', ')}` });
       return;
     default:
       await appendLog({ kind: 'error', text: `Unknown message type ${env.type}` });
   }
 }
 
-async function onNeedsSession(p) {
+async function onNeedsSession(pairingId, p) {
   if (!p || typeof p.request_id !== 'string' || !Array.isArray(p.origins) || !p.origins.length) return;
+  const pairing = await getPairing(pairingId);
+  if (!pairing) return;
   const now = Math.floor(Date.now() / 1000);
   if (typeof p.expires_at === 'number' && p.expires_at <= now) {
     await appendLog({ kind: 'stale', request_id: p.request_id, text: `Ignored expired request for ${p.origins.join(', ')}` });
@@ -246,15 +292,16 @@ async function onNeedsSession(p) {
   }
   const blocked = denylisted(p.origins);
   if (blocked.length) {
-    await sendToAgent('declined', { request_id: p.request_id, reason: 'denylist' });
-    await appendLog({ kind: 'denylist', request_id: p.request_id, origins: p.origins, text: `Declined (denylist): ${blocked.join(', ')}` });
+    await sendToAgent(pairingId, 'declined', { request_id: p.request_id, reason: 'denylist' });
+    await appendLog({ kind: 'denylist', request_id: p.request_id, origins: p.origins, text: `Declined ${agentName(pairing)} (denylist): ${blocked.join(', ')}` });
     return;
   }
   const requests = await getRequests();
   const key = originsKey(p.origins);
-  // Idempotency (spec §5.2): an identical unanswered request replaces the old one.
+  // Idempotency (spec §5.2), scoped per agent: replace an identical unanswered
+  // request from the SAME pairing; the same origins from another agent is distinct.
   for (const [id, r] of Object.entries(requests)) {
-    if ((r.state === 'pending' || r.state === 'started') && (id === p.request_id || originsKey(r.origins) === key)) {
+    if ((r.state === 'pending' || r.state === 'started') && r.pairing_id === pairingId && (id === p.request_id || originsKey(r.origins) === key)) {
       if (id === p.request_id) {
         requests[id] = { ...r, hint_url: p.hint_url, task_label: p.task_label, expires_at: p.expires_at };
         await setRequests(requests);
@@ -265,36 +312,41 @@ async function onNeedsSession(p) {
   }
   requests[p.request_id] = {
     request_id: p.request_id,
+    pairing_id: pairingId,
+    agent_name: agentName(pairing),
+    agent_fingerprint: pairing.agent_fingerprint,
     origins: p.origins,
     tier: p.tier || 1,
     hint_url: p.hint_url || p.origins[0] + '/',
     task_label: p.task_label || 'Agent needs a session',
+    agent_context: typeof p.agent_context === 'string' ? p.agent_context.slice(0, 200) : null,
     expires_at: p.expires_at,
     allow_silent: Boolean(p.allow_silent),
     state: 'pending',
     received_at: Date.now(),
   };
   await setRequests(requests);
-  await appendLog({ kind: 'request', request_id: p.request_id, origins: p.origins, text: `Session requested: ${p.task_label || ''} (${p.origins.join(', ')})` });
-  const pairing = await getPairing();
-  notify(p.request_id, `${pairing?.agent?.display_name || 'Agent'} needs a session`, `${p.task_label || ''}\n${p.origins.join(', ')}`);
+  await appendLog({ kind: 'request', request_id: p.request_id, origins: p.origins, text: `${agentName(pairing)} requested a session: ${p.task_label || ''} (${p.origins.join(', ')})` });
+  notify(p.request_id, `${agentName(pairing)} needs a session`, `${p.task_label || ''}\n${p.origins.join(', ')}`);
   // Pop a compact window so the human sees Start / Done / Decline without hunting
   // for the toolbar icon. Chrome can't reliably open the action popup on a
   // background event, but it can open a window (spec §7 interactive path).
   await openRequestWindow();
 }
 
-async function onReport(p) {
+async function onReport(pairingId, p) {
   if (!p || typeof p.request_id !== 'string') return;
   const requests = await getRequests();
   const r = requests[p.request_id];
+  if (r && r.pairing_id !== pairingId) return; // a report may only touch its own agent's request
   if (r) {
     requests[p.request_id] = { ...r, state: 'reported', result: { ok: Boolean(p.ok), reason: p.reason || null, at: Date.now() } };
     await setRequests(requests);
   }
-  const text = p.ok ? 'Agent reports the session worked' : `Agent reports failure: ${p.reason || 'unspecified'}`;
+  const who = r ? r.agent_name : 'Agent';
+  const text = p.ok ? `${who} reports the session worked` : `${who} reports failure: ${p.reason || 'unspecified'}`;
   await appendLog({ kind: 'report', request_id: p.request_id, origins: r?.origins, ok: Boolean(p.ok), text });
-  notify(`report-${p.request_id}`, p.ok ? '✓ Session handoff worked' : '✗ Session handoff failed', p.ok ? (r?.origins || []).join(', ') : p.reason || 'unspecified');
+  notify(`report-${p.request_id}`, p.ok ? '✓︎ Session handoff worked' : '✗︎ Session handoff failed', p.ok ? (r?.origins || []).join(', ') : p.reason || 'unspecified');
 }
 
 function notify(id, title, message) {
@@ -373,14 +425,18 @@ function pacScript(hosts, proxyServer) {
 }`;
 }
 
-async function applyProxy(origins) {
-  const pairing = await getPairing();
+async function applyProxy(pairingId, requestId, origins) {
+  const pairing = await getPairing(pairingId);
   if (!pairing?.proxy) throw new Error('no proxy credentials for this pairing');
+  // Spec §10: one tier-2 login at a time — the browser's proxy auth can't tell
+  // which agent a proxied connection belongs to.
+  const active = await store.get('activeProxy', null);
+  if (active && active.request_id !== requestId) throw new Error('another tier-2 login is in progress; finish or decline it first');
   const hosts = [...new Set(origins.map((o) => { try { return new URL(o).hostname; } catch { return null; } }).filter(Boolean))];
   const config = { mode: 'pac_script', pacScript: { data: pacScript(hosts, pairing.proxy.server) } };
   await chrome.proxy.settings.set({ value: config, scope: 'regular' });
   proxyAuthActive = { ...pairing.proxy };
-  await store.set({ activeProxy: { hosts, server: pairing.proxy.server, at: Date.now() } });
+  await store.set({ activeProxy: { pairing_id: pairingId, request_id: requestId, hosts, server: pairing.proxy.server, at: Date.now() } });
 }
 
 async function clearProxy() {
@@ -405,7 +461,7 @@ chrome.webRequest.onAuthRequired.addListener(
 // After a restart, re-assert proxyAuthActive from storage so auth still answers.
 store.get('activeProxy', null).then(async (ap) => {
   if (!ap) return;
-  const pairing = await getPairing();
+  const pairing = await getPairing(ap.pairing_id);
   if (pairing?.proxy) proxyAuthActive = { ...pairing.proxy };
 });
 
@@ -536,7 +592,7 @@ async function exportBundle(origins) {
 
 // ---------------------------------------------------------------- pairing (spec §3.2)
 
-async function pair({ relay, code }) {
+async function pair({ relay, code, label }) {
   const relay_http = (relay || DEFAULT_RELAY).trim().replace(/\/+$/, '');
   const clean = String(code || '').replace(/[^a-z0-9]/gi, '').toUpperCase();
   if (clean.length !== 8) throw new Error('pairing code must be 8 characters');
@@ -559,25 +615,33 @@ async function pair({ relay, code }) {
   if (res.status === 404) throw new Error('pairing code not found or expired');
   if (!res.ok) throw new Error(`relay error ${res.status}`);
   const body = await res.json();
-  const old = await getPairing();
-  if (old && !old.revoked) await revokeAtRelay(old).catch(() => {});
-  if (ws) { try { ws.close(1000, 'repaired'); } catch { /* ignore */ } ws = null; }
-  const pairing = {
+  // Re-pairing the same agent replaces its registration (re-key) rather than duplicating.
+  const pairings = await getPairings();
+  const existing = Object.values(pairings).find((p) => p.agent?.agent_id === body.agent.agent_id && !p.revoked && p.pairing_id !== body.pairing_id);
+  let carriedLabel = null;
+  if (existing) {
+    carriedLabel = existing.label;
+    await revokeAtRelay(existing).catch(() => {});
+    disconnectPairing(existing.pairing_id, 1000, 'repaired');
+    await deletePairingRecord(existing.pairing_id);
+    await clearConn(existing.pairing_id);
+  }
+  const rec = {
     pairing_id: body.pairing_id,
     relay_http,
     relay_ws: C.wsUrlFor(relay_http),
     token: body.token,
     agent: body.agent,
     agent_fingerprint: C.fingerprint(body.agent.agent_enc_pk),
+    label: (label && label.trim()) || carriedLabel || body.agent.display_name || body.agent.agent_id.slice(0, 8),
     proxy: body.proxy || null, // { server, username, password } for tier-2 (spec §4)
     created_at: body.created_at || Math.floor(Date.now() / 1000),
   };
-  await store.set({ pairing, requests: {}, seen: [] });
-  await updateBadge({});
-  await appendLog({ kind: 'paired', text: `Paired with ${body.agent.display_name}` });
-  backoffMs = 1000;
-  await connect();
-  return publicPairing(pairing);
+  await putPairing(rec);
+  await updateBadge();
+  await appendLog({ kind: 'paired', text: `Registered agent ${rec.label}` });
+  connectPairing(rec.pairing_id);
+  return publicPairing(rec);
 }
 
 async function revokeAtRelay(pairing) {
@@ -587,16 +651,39 @@ async function revokeAtRelay(pairing) {
   });
 }
 
-async function unpair() {
-  const pairing = await getPairing();
+// Remove one agent's pending requests (and any proxy it owns) — used on revoke.
+async function dropRequestsForPairing(pairingId) {
+  const requests = await getRequests();
+  let changed = false;
+  for (const [rid, r] of Object.entries(requests)) {
+    if (r.pairing_id === pairingId) {
+      delete requests[rid];
+      changed = true;
+      if (r.tab_id != null) await removePanel(r.tab_id);
+    }
+  }
+  if (changed) await setRequests(requests);
+  const ap = await store.get('activeProxy', null);
+  if (ap && ap.pairing_id === pairingId) await clearProxy();
+}
+
+async function revokePairing(pairingId) {
+  const pairing = await getPairing(pairingId);
   if (pairing && !pairing.revoked) await revokeAtRelay(pairing).catch(() => {});
-  if (ws) { try { ws.close(1000, 'unpaired'); } catch { /* ignore */ } ws = null; }
-  stopPing();
-  await clearProxy();
-  await chrome.storage.local.remove(['pairing', 'requests', 'seen']);
-  await setConn('unpaired');
-  await updateBadge({});
-  await appendLog({ kind: 'unpaired', text: 'Pairing removed' });
+  disconnectPairing(pairingId, 1000, 'unpaired');
+  await dropRequestsForPairing(pairingId);
+  await deletePairingRecord(pairingId);
+  await clearConn(pairingId);
+  await updateBadge();
+  await appendLog({ kind: 'unpaired', text: `Removed agent ${agentName(pairing)}` });
+}
+
+async function renamePairing(pairingId, label) {
+  const pairing = await getPairing(pairingId);
+  if (!pairing) throw new Error('unknown agent');
+  const clean = String(label || '').trim().slice(0, 60) || pairing.agent.display_name;
+  await putPairing({ ...pairing, label: clean });
+  return clean;
 }
 
 function publicPairing(p) {
@@ -609,16 +696,19 @@ function publicPairing(p) {
 
 async function getState() {
   const identity = await getIdentity();
-  const [pairing, conn, requests, log] = await Promise.all([
-    getPairing(),
-    store.get('conn', { state: 'unpaired' }),
+  const [pairings, connMap, requests, log] = await Promise.all([
+    getPairings(),
+    store.get('connState', {}),
     getRequests(),
     store.get('log', []),
   ]);
+  const agents = Object.values(pairings)
+    .filter((p) => !p.revoked)
+    .sort((a, b) => (a.created_at || 0) - (b.created_at || 0))
+    .map((p) => ({ ...publicPairing(p), conn: connMap[p.pairing_id] || { state: 'connecting' } }));
   return {
     identity: { ext_id: identity.ext_id, fingerprint: C.fingerprint(identity.enc_pk) },
-    pairing: publicPairing(pairing),
-    conn: pairing ? conn : { state: 'unpaired' },
+    agents,
     requests,
     log,
     default_relay: DEFAULT_RELAY,
@@ -651,6 +741,7 @@ function renderHandoffPanel(data) {
       .hd{display:flex;align-items:center;gap:8px;padding:10px 12px;background:#181c22;border-bottom:1px solid #2a3038}
       .dot{width:9px;height:9px;border-radius:50%;background:#d97706;flex:none}
       .hd b{font-size:12px;font-weight:600}
+      .hd .agent{margin-left:auto;font-size:11px;color:#9aa3ad;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
       .bd{padding:10px 12px}
       .lbl{font-weight:600;margin-bottom:4px}
       .org{font-family:ui-monospace,Menlo,monospace;font-size:11px;color:#9aa3ad;word-break:break-all;margin-bottom:2px}
@@ -665,7 +756,7 @@ function renderHandoffPanel(data) {
       .x{margin-left:auto;background:none;border:none;color:#9aa3ad;cursor:pointer;font-size:18px;line-height:1;flex:none;width:auto;padding:0 2px}
     </style>
     <div class="card">
-      <div class="hd"><span class="dot"></span><b>Session Handoff</b>
+      <div class="hd"><span class="dot"></span><b>Session Handoff</b><span class="agent"></span>
         <button class="x" title="Hide" aria-label="Hide">×</button></div>
       <div class="bd">
         <div class="lbl"></div>
@@ -679,6 +770,7 @@ function renderHandoffPanel(data) {
       </div>
     </div>`;
   root.querySelector('.lbl').textContent = data.label || 'Agent needs a session';
+  if (data.agent) root.querySelector('.agent').textContent = data.agent;
   const orgs = root.querySelector('.orgs');
   for (const o of data.origins || []) {
     const d = document.createElement('div');
@@ -732,7 +824,7 @@ async function injectPanel(tabId, r) {
     await chrome.scripting.executeScript({
       target: { tabId },
       func: renderHandoffPanel,
-      args: [{ request_id: r.request_id, label: r.task_label, origins: r.origins, tier: r.tier || 1 }],
+      args: [{ request_id: r.request_id, label: r.task_label, agent: r.agent_name, origins: r.origins, tier: r.tier || 1 }],
     });
   } catch (e) {
     // Some pages (chrome://, the Web Store) refuse injection; the popup window still works.
@@ -766,7 +858,7 @@ async function startRequest(request_id) {
   // Tier 2: route this origin's traffic through the relay proxy before the human
   // logs in, so the minted session is bound to the relay's IP (spec §7).
   if (r.tier === 2) {
-    await applyProxy(r.origins);
+    await applyProxy(r.pairing_id, request_id, r.origins);
     await appendLog({ kind: 'proxy', request_id, origins: r.origins, text: `Routing ${r.origins.join(', ')} through the relay proxy (tier 2)` });
   }
   const tab = await chrome.tabs.create({ url: r.hint_url, active: true });
@@ -781,7 +873,7 @@ async function finishRequest(request_id) {
   if (!r) throw new Error('request no longer pending');
   const bundle = await exportBundle(r.origins);
   const proxied = r.tier === 2;
-  await sendToAgent('session_bundle', { request_id, bundle, proxied, silent: false });
+  await sendToAgent(r.pairing_id, 'session_bundle', { request_id, bundle, proxied, silent: false });
   if (proxied) await clearProxy(); // login done; stop routing the human's other traffic
   requests[request_id] = { ...r, state: 'sent', sent_at: Date.now(), summary: summarize(bundle), proxied };
   await setRequests(requests);
@@ -799,7 +891,7 @@ async function declineRequest(request_id) {
   const requests = await getRequests();
   const r = requests[request_id];
   if (!r) throw new Error('request no longer pending');
-  await sendToAgent('declined', { request_id, reason: 'user' });
+  await sendToAgent(r.pairing_id, 'declined', { request_id, reason: 'user' });
   delete requests[request_id];
   await setRequests(requests);
   if (r.tier === 2 && !anyTier2Active(requests)) await clearProxy();
@@ -820,9 +912,10 @@ async function dismissRequest(request_id) {
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   const handlers = {
     getState: () => getState(),
-    pair: () => pair(msg),
-    unpair: () => unpair(),
-    reconnect: async () => { backoffMs = 1000; await connect(); },
+    pair: () => pair(msg),                          // register another agent
+    rename: () => renamePairing(msg.pairing_id, msg.label),
+    revoke: () => revokePairing(msg.pairing_id),    // remove one agent
+    reconnect: async () => { for (const cs of conns.values()) cs.backoffMs = 1000; await connectAll(); },
     start: () => startRequest(msg.request_id),
     done: () => finishRequest(msg.request_id),
     decline: () => declineRequest(msg.request_id),
@@ -854,10 +947,24 @@ async function sweepStale() {
   }
 }
 
+// Migrate a pre-multi-agent single `pairing` into the `pairings` map.
+async function migrate() {
+  const old = await store.get('pairing', null);
+  if (!old) return;
+  const pairings = await getPairings();
+  if (!pairings[old.pairing_id]) {
+    pairings[old.pairing_id] = { ...old, label: old.label || old.agent?.display_name || 'agent' };
+    await store.set({ pairings });
+  }
+  await chrome.storage.local.remove(['pairing', 'conn']);
+  await appendLog({ kind: 'paired', text: 'Migrated existing pairing to the multi-agent store' });
+}
+
 async function boot() {
   try { await chrome.alarms.create(KEEPALIVE_ALARM, { periodInMinutes: 0.5 }); } catch { /* ignore */ }
+  await migrate();
   await updateBadge();
-  await connect();
+  await connectAll();
 }
 
 chrome.runtime.onInstalled.addListener(() => boot());
@@ -865,6 +972,6 @@ chrome.runtime.onStartup.addListener(() => boot());
 chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name !== KEEPALIVE_ALARM) return;
   await sweepStale();
-  await connect();
+  await connectAll();
 });
 boot();
