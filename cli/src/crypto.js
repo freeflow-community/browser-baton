@@ -71,8 +71,29 @@ export function open(payloadB64, mySkB64) {
   return JSON.parse(new TextDecoder().decode(pt));
 }
 
-export function makeEnvelope({ pairing_id, type, payload, recipientPkB64, msg_id }) {
-  return {
+// Canonical bytes an envelope's signature covers (spec §5): v|pairing_id|msg_id|type|ts|from|payload.
+function signingBytes(env) {
+  return new TextEncoder().encode([env.v, env.pairing_id, env.msg_id, env.type, env.ts, env.from, env.payload].join('|'));
+}
+
+/** Ed25519-sign an unsigned envelope in place and return it. */
+export function signEnvelope(env, signSkB64) {
+  env.sig = b64.encode(nacl.sign.detached(signingBytes(env), b64.decode(signSkB64)));
+  return env;
+}
+
+/** Verify an envelope's Ed25519 signature against the sender's public key. */
+export function verifyEnvelope(env, signPkB64) {
+  if (typeof env.sig !== 'string' || !env.sig) return false;
+  try {
+    return nacl.sign.detached.verify(signingBytes(env), b64.decode(env.sig), b64.decode(signPkB64));
+  } catch {
+    return false;
+  }
+}
+
+export function makeEnvelope({ pairing_id, type, payload, recipientPkB64, msg_id, signSkB64 }) {
+  const env = {
     v: 1,
     pairing_id,
     msg_id: msg_id || crypto.randomUUID(),
@@ -82,4 +103,6 @@ export function makeEnvelope({ pairing_id, type, payload, recipientPkB64, msg_id
     payload: seal(payload, recipientPkB64),
     sig: '',
   };
+  if (signSkB64) signEnvelope(env, signSkB64);
+  return env;
 }

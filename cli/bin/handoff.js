@@ -15,7 +15,7 @@ import path from 'node:path';
 import { parseArgs } from 'node:util';
 import * as cfg from '../src/config.js';
 import { RelayClient, RelayError } from '../src/relay.js';
-import { fingerprint, makeEnvelope, open } from '../src/crypto.js';
+import { fingerprint, makeEnvelope, open, verifyEnvelope } from '../src/crypto.js';
 
 const EXIT = { OK: 0, ERROR: 1, DECLINED: 2, TIMEOUT: 3, UNPAIRED: 4 };
 const POLL_WAIT_S = 30;
@@ -198,6 +198,7 @@ async function cmdRequest(values) {
       type: 'needs_session',
       payload,
       recipientPkB64: pairing.ext_enc_pk,
+      signSkB64: identity.sign_sk,
     });
     req = {
       request_id,
@@ -252,6 +253,11 @@ async function cmdRequest(values) {
     let outcome = null;
     for (const env of res?.messages || []) {
       if (env.from !== 'ext') continue;
+      if (!verifyEnvelope(env, pairing.ext_sign_pk)) {
+        log(`dropping message ${env.msg_id}: bad signature`);
+        toAck.push(env.msg_id);
+        continue;
+      }
       let payload;
       try {
         payload = open(env.payload, identity.enc_sk);
@@ -316,12 +322,14 @@ async function cmdReport(values) {
   const ok = Boolean(values.ok);
   const reason = ok ? undefined : String(values.failed || 'unspecified');
   const pairing = requirePairing(values);
+  const identity = cfg.loadIdentity();
   const relay = relayFor(pairing, values.relay);
   const envelope = makeEnvelope({
     pairing_id: pairing.pairing_id,
     type: 'report',
     payload: { request_id, ok, reason },
     recipientPkB64: pairing.ext_enc_pk,
+    signSkB64: identity.sign_sk,
   });
   try {
     await relay.postMessage(pairing.pairing_id, envelope);

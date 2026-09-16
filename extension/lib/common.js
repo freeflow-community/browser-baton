@@ -73,8 +73,27 @@
     return JSON.parse(new TextDecoder().decode(pt));
   }
 
-  function makeEnvelope({ pairing_id, type, payload, recipientPkB64 }) {
-    return {
+  // Canonical bytes an envelope's signature covers (spec §5).
+  function signingBytes(env) {
+    return new TextEncoder().encode([env.v, env.pairing_id, env.msg_id, env.type, env.ts, env.from, env.payload].join('|'));
+  }
+
+  function signEnvelope(env, signSkB64) {
+    env.sig = b64.encode(nacl.sign.detached(signingBytes(env), b64.decode(signSkB64)));
+    return env;
+  }
+
+  function verifyEnvelope(env, signPkB64) {
+    if (typeof env.sig !== 'string' || !env.sig) return false;
+    try {
+      return nacl.sign.detached.verify(signingBytes(env), b64.decode(env.sig), b64.decode(signPkB64));
+    } catch {
+      return false;
+    }
+  }
+
+  function makeEnvelope({ pairing_id, type, payload, recipientPkB64, signSkB64 }) {
+    const env = {
       v: 1,
       pairing_id,
       msg_id: crypto.randomUUID(),
@@ -84,6 +103,8 @@
       payload: seal(payload, recipientPkB64),
       sig: '',
     };
+    if (signSkB64) signEnvelope(env, signSkB64);
+    return env;
   }
 
   /** http(s)://host[:port] -> ws(s)://host[:port]/v1/ext */
@@ -95,5 +116,5 @@
     return u.toString();
   }
 
-  root.HandoffCommon = { b64, base32, generateIdentity, fingerprint, seal, open, makeEnvelope, wsUrlFor };
+  root.HandoffCommon = { b64, base32, generateIdentity, fingerprint, seal, open, makeEnvelope, signEnvelope, verifyEnvelope, wsUrlFor };
 })(typeof self !== 'undefined' ? self : globalThis);
