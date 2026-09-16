@@ -234,7 +234,13 @@ try {
   // Proxy should be applied while the request is in flight.
   const proxyMode = await popup.evaluate(() => new Promise((res) => chrome.proxy.settings.get({}, (c) => res(c.value?.mode))));
   check('tier 2: extension applied a PAC proxy during login', proxyMode === 'pac_script', `mode ${proxyMode}`);
-  await clickDone(popup);
+  // Complete via the in-page panel injected onto the login tab (not the popup window).
+  const panelDone = loginTab.getByRole('button', { name: /Done/ });
+  await panelDone.waitFor({ state: 'visible', timeout: 10_000 });
+  check('tier 2: in-page Done panel appears on the login tab', true);
+  await panelDone.click();
+  await loginTab.getByText(/Session sent/).waitFor({ timeout: 30_000 });
+  check('tier 2: in-page panel confirms the session was sent', true);
   const a2 = await agent2.done;
   check('tier 2: agent lands past login via the proxy', a2.code === 0 && /ok: landed past the login/.test(a2.stderr), `exit ${a2.code}`);
 

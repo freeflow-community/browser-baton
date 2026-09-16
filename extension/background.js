@@ -619,6 +619,139 @@ async function getState() {
   };
 }
 
+// ---------------------------------------------------------------- in-page panel
+//
+// After Start opens the login tab, inject a small floating panel there with Done
+// and Decline, so the human never has to hunt for the popup window. It is
+// re-injected on every load of that tab so it survives the login redirects.
+
+// Runs in the page (isolated content-script world). Self-contained — no closures.
+function renderHandoffPanel(data) {
+  const ID = 'handoff-panel-host-v1';
+  if (document.getElementById(ID)) return; // already present on this document
+  const host = document.createElement('div');
+  host.id = ID;
+  // Bottom-right, clear of the top nav / cookie banners most sites pin up top.
+  host.style.cssText = 'all:initial;position:fixed;bottom:18px;right:18px;z-index:2147483647;display:block;';
+  const root = host.attachShadow({ mode: 'open' });
+  root.innerHTML = `
+    <style>
+      /* force text (not colour-emoji) presentation so glyphs like ✕/✓ stay small and uniform */
+      *{box-sizing:border-box;font-variant-emoji:text}
+      .card{font:13px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;width:300px;
+        background:#111418;color:#e6e8eb;border:1px solid #2a3038;border-top:3px solid #2563eb;border-radius:12px;
+        box-shadow:0 12px 40px rgba(0,0,0,.45);overflow:hidden}
+      .hd{display:flex;align-items:center;gap:8px;padding:10px 12px;background:#181c22;border-bottom:1px solid #2a3038}
+      .dot{width:9px;height:9px;border-radius:50%;background:#d97706;flex:none}
+      .hd b{font-size:12px;font-weight:600}
+      .bd{padding:10px 12px}
+      .lbl{font-weight:600;margin-bottom:4px}
+      .org{font-family:ui-monospace,Menlo,monospace;font-size:11px;color:#9aa3ad;word-break:break-all;margin-bottom:2px}
+      .tip{color:#9aa3ad;font-size:11px;margin:8px 0 10px}
+      .row{display:flex;gap:8px}
+      button{font:inherit;flex:1;padding:8px 10px;border-radius:8px;border:1px solid #2a3038;
+        background:#20262e;color:#e6e8eb;cursor:pointer}
+      button.p{background:#2563eb;border-color:#2563eb;color:#fff;font-weight:600}
+      button:disabled{opacity:.55;cursor:default}
+      .st{margin-top:8px;font-size:11px;color:#9aa3ad;min-height:14px}
+      .ok{color:#34d399}.bad{color:#f87171}
+      .x{margin-left:auto;background:none;border:none;color:#9aa3ad;cursor:pointer;font-size:18px;line-height:1;flex:none;width:auto;padding:0 2px}
+    </style>
+    <div class="card">
+      <div class="hd"><span class="dot"></span><b>Session Handoff</b>
+        <button class="x" title="Hide" aria-label="Hide">×</button></div>
+      <div class="bd">
+        <div class="lbl"></div>
+        <div class="orgs"></div>
+        <div class="tip">Log in on this page, then click Done to send the session to the agent.</div>
+        <div class="row">
+          <button class="done p">Done — send session</button>
+          <button class="decline">Decline</button>
+        </div>
+        <div class="st"></div>
+      </div>
+    </div>`;
+  root.querySelector('.lbl').textContent = data.label || 'Agent needs a session';
+  const orgs = root.querySelector('.orgs');
+  for (const o of data.origins || []) {
+    const d = document.createElement('div');
+    d.className = 'org';
+    d.textContent = o + (data.tier === 2 ? '  · via relay proxy' : '');
+    orgs.appendChild(d);
+  }
+  const st = root.querySelector('.st');
+  const done = root.querySelector('.done');
+  const decline = root.querySelector('.decline');
+  const send = (type) => {
+    if (!chrome.runtime?.id) { st.textContent = 'Extension unavailable; use the popup.'; st.className = 'st bad'; return; }
+    done.disabled = decline.disabled = true;
+    st.className = 'st';
+    st.textContent = type === 'done' ? 'Exporting cookies and localStorage…' : 'Declining…';
+    chrome.runtime.sendMessage({ type, request_id: data.request_id }, (res) => {
+      if (chrome.runtime.lastError) { st.className = 'st bad'; st.textContent = chrome.runtime.lastError.message; done.disabled = decline.disabled = false; return; }
+      if (!res || !res.ok) { st.className = 'st bad'; st.textContent = (res && res.error) || 'failed'; done.disabled = decline.disabled = false; return; }
+      st.className = 'st ok';
+      st.textContent = type === 'done' ? '\u2713\uFE0E Session sent. You can close this tab.' : 'Declined.';
+      setTimeout(() => host.remove(), type === 'done' ? 4000 : 1200);
+    });
+  };
+  done.onclick = () => send('done');
+  decline.onclick = () => send('decline');
+  root.querySelector('.x').onclick = () => host.remove();
+  (document.body || document.documentElement).appendChild(host);
+}
+
+function removeHandoffPanel() {
+  const el = document.getElementById('handoff-panel-host-v1');
+  if (el) el.remove();
+}
+
+// Reflect a completion into the panel (when Done/Decline came from the popup
+// window rather than the panel itself), then let it fade out.
+function setHandoffPanelStatus(kind) {
+  const host = document.getElementById('handoff-panel-host-v1');
+  if (!host || !host.shadowRoot) return;
+  host.shadowRoot.querySelectorAll('button').forEach((b) => { b.disabled = true; });
+  const st = host.shadowRoot.querySelector('.st');
+  if (st) {
+    st.className = 'st ' + (kind === 'sent' ? 'ok' : '');
+    st.textContent = kind === 'sent' ? '\u2713\uFE0E Session sent. You can close this tab.' : 'Declined.';
+  }
+  setTimeout(() => host.remove(), kind === 'sent' ? 4000 : 1200);
+}
+
+async function injectPanel(tabId, r) {
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      func: renderHandoffPanel,
+      args: [{ request_id: r.request_id, label: r.task_label, origins: r.origins, tier: r.tier || 1 }],
+    });
+  } catch (e) {
+    // Some pages (chrome://, the Web Store) refuse injection; the popup window still works.
+    console.debug('[handoff] panel injection skipped', e?.message);
+  }
+}
+
+async function removePanel(tabId) {
+  if (tabId == null) return;
+  try { await chrome.scripting.executeScript({ target: { tabId }, func: removeHandoffPanel }); } catch { /* tab gone */ }
+}
+
+// Soft-update the panel to a terminal state (leaves the success message visible).
+async function markPanel(tabId, kind) {
+  if (tabId == null) return;
+  try { await chrome.scripting.executeScript({ target: { tabId }, func: setHandoffPanelStatus, args: [kind] }); } catch { /* tab gone */ }
+}
+
+// Re-inject the panel whenever the login tab finishes loading (survives redirects).
+chrome.tabs.onUpdated.addListener(async (tabId, changeInfo) => {
+  if (changeInfo.status !== 'complete') return;
+  const requests = await getRequests();
+  const r = Object.values(requests).find((x) => x.tab_id === tabId && x.state === 'started');
+  if (r) await injectPanel(tabId, r);
+});
+
 async function startRequest(request_id) {
   const requests = await getRequests();
   const r = requests[request_id];
@@ -632,6 +765,7 @@ async function startRequest(request_id) {
   const tab = await chrome.tabs.create({ url: r.hint_url, active: true });
   requests[request_id] = { ...r, state: 'started', tab_id: tab.id };
   await setRequests(requests);
+  await injectPanel(tab.id, requests[request_id]); // onUpdated will re-inject on load too
 }
 
 async function finishRequest(request_id) {
@@ -644,6 +778,7 @@ async function finishRequest(request_id) {
   if (proxied) await clearProxy(); // login done; stop routing the human's other traffic
   requests[request_id] = { ...r, state: 'sent', sent_at: Date.now(), summary: summarize(bundle), proxied };
   await setRequests(requests);
+  if (r.tab_id != null) await markPanel(r.tab_id, 'sent'); // reflect if Done came from the popup window
   await appendLog({ kind: 'sent', request_id, origins: r.origins, text: `Sent ${summarize(bundle)} for ${r.origins.join(', ')}${proxied ? ' (tier 2)' : ''}` });
   return summarize(bundle);
 }
@@ -661,6 +796,7 @@ async function declineRequest(request_id) {
   delete requests[request_id];
   await setRequests(requests);
   if (r.tier === 2 && !anyTier2Active(requests)) await clearProxy();
+  if (r.tab_id != null) await markPanel(r.tab_id, 'declined');
   await appendLog({ kind: 'declined', request_id, origins: r.origins, text: `Declined request for ${r.origins.join(', ')}` });
 }
 
@@ -701,6 +837,7 @@ async function sweepStale() {
     if ((r.state === 'pending' || r.state === 'started') && typeof r.expires_at === 'number' && r.expires_at <= now) {
       delete requests[id];
       changed = true;
+      if (r.tab_id != null) await removePanel(r.tab_id);
       await appendLog({ kind: 'stale', request_id: id, origins: r.origins, text: `Request timed out: ${r.origins.join(', ')}` });
     }
   }
