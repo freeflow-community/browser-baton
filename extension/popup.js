@@ -66,10 +66,18 @@ function renderRequests(state) {
     const decline = node.querySelector('.decline');
     const dismiss = node.querySelector('.dismiss');
     if (r.state === 'pending') {
-      status.textContent = `Tier ${r.tier}. Click Start to open the login page, log in, then click Done.`;
+      // Start is the call to action; Done doesn't apply until a login tab is open.
+      status.textContent = `Open the login page and sign in.${r.tier === 2 ? ' (Routed through the relay proxy.)' : ''}`;
+      start.textContent = 'Start';
+      start.classList.add('primary');
+      done.hidden = true;
     } else if (r.state === 'started') {
-      status.textContent = 'Log in in the opened tab, then click Done to send the session.';
+      // Primary action is now the panel on the login tab; Done here is a fallback.
+      status.textContent = 'Sign in on the opened tab, then confirm in the panel there. Or use Done below.';
       start.textContent = 'Reopen';
+      start.classList.add('ghost');
+      done.classList.remove('primary');
+      done.classList.add('ghost');
     } else if (r.state === 'sent') {
       status.textContent = `Sent ${r.summary || 'bundle'}. Waiting for the agent to report…`;
       start.hidden = done.hidden = decline.hidden = true;

@@ -108,15 +108,18 @@ async function pendingRequests(page) {
 }
 
 async function clickDone(page) {
-  const card = await waitFor(async () => {
-    const cards = await page.$$('.request');
-    for (const c of cards) {
-      const btn = await c.$('button.done');
-      if (btn && (await btn.isVisible())) return c;
-    }
-    return null;
-  }, { what: 'a pending request card in the popup' });
-  await (await card.$('button.done')).click();
+  // Start (if still pending) opens the login tab; Done then sends the session.
+  // Re-query each step because the popup re-renders the card on every state change.
+  const start = await waitFor(async () => {
+    const s = await page.$('.request button.start');
+    return s && (await s.isVisible()) ? s : null;
+  }, { what: 'a Start button in the popup' });
+  await start.click();
+  const done = await waitFor(async () => {
+    const d = await page.$('.request button.done');
+    return d && (await d.isVisible()) ? d : null;
+  }, { what: 'a Done button after Start' });
+  await done.click();
   await page.waitForSelector('.request.sent, .request.reported-ok, .request.reported-bad', { timeout: 30_000 });
 }
 
@@ -167,6 +170,12 @@ try {
   ).catch(() => null);
   check('request: extension auto-opens a window on a request', Boolean(reqWindow));
   await clickDone(popup);
+  // With nothing else pending, the request window should close itself after Done.
+  const windowClosed = await waitFor(
+    () => !context.pages().some((pg) => pg.url().includes('popup.html?window=1')),
+    { what: 'request window to close after Done', timeout: 10_000 },
+  ).then(() => true, () => false);
+  check('request: window auto-closes after the session is confirmed', windowClosed);
   let hr = await agent.done;
   check('cookie site: agent lands past the login', hr.code === 0 && /ok: landed past the login/.test(hr.stderr), `exit ${hr.code}`);
   const cookieBundle = JSON.parse(fs.readFileSync(path.join(TMP, 'cookie-bundle.json'), 'utf8'));
