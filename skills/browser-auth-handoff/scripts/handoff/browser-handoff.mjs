@@ -12,9 +12,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
-import * as cfg from '../src/config.js';
-import { RelayClient, RelayError } from '../src/relay.js';
-import { fingerprint, makeEnvelope, open, verifyEnvelope } from '../src/crypto.js';
+import * as cfg from './config.js';
+import { RelayClient, RelayError } from './relay.js';
+import { fingerprint, makeEnvelope, open, verifyEnvelope } from './crypto.js';
 
 const EXIT = { OK: 0, ERROR: 1, DECLINED: 2, TIMEOUT: 3, UNPAIRED: 4 };
 const POLL_WAIT_S = 30;

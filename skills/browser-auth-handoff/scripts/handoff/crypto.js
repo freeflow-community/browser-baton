@@ -6,7 +6,7 @@
 // not signed yet (`sig` is empty); the Ed25519 identity keys exist so the
 // identity IDs and pairing records already have the final shape.
 
-import nacl from 'tweetnacl';
+import nacl from './nacl-fast.cjs';
 
 const B32 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
 

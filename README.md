@@ -22,7 +22,7 @@ stores opaque envelopes only. Every envelope is Ed25519-signed by its sender and
 |---|---|
 | `relay/` | Single-process relay: pairing registry, per-pairing queues, WebSocket for the extension, long-poll for the CLI, plus a per-pairing CONNECT/forward **proxy** for tier 2. In-memory with a JSON snapshot (`relay/data/state.json`). |
 | `extension/` | Chrome MV3 extension. Registers **many agents** (an Agents list with add / rename / revoke), one WebSocket per pairing. A request auto-opens a compact window (Start / Done / Decline) labeled with the requesting agent; after Start, a floating panel is injected onto the login tab so Done is right there, surviving the login redirects. Exports cookies (`chrome.cookies`) and localStorage for the requested origins. For tier 2, applies a scoped PAC so the login egresses through the relay proxy. |
-| `cli/` | `browser-handoff pair | request | report | proxy | agents | use | status | revoke`. Config in `$HANDOFF_HOME` or `~/.handoff/`. |
+| `skills/browser-auth-handoff/scripts/handoff/` | The **`browser-handoff` CLI** (embedded in the skill, zero npm deps — vendored crypto): `pair | request | report | proxy | agents | use | status | revoke`. Config in `$HANDOFF_HOME` or `~/.handoff/`. |
 | `skills/browser-auth-handoff/` | **How an agent uses this.** Agent-facing skill: recognize an auth wall (agent's own judgment), request a session with the `browser-handoff` CLI, import the bundle, verify, report. Bundles a reusable Playwright importer (`scripts/import-bundle.mjs`) and per-driver recipes for Puppeteer / chrome-devtools MCP / CDP (`reference/drivers.md`). |
 | `testsite/` | Local toy site with a cookie-auth app and a localStorage-token app. |
 | `test/e2e.mjs` | Automated run of the four MVP success criteria with the real extension loaded in Chromium. |
@@ -40,15 +40,18 @@ Relay field (extension) — for local development, point both at `http://127.0.0
 npm install
 npx playwright install chromium     # for the e2e test
 
+# the CLI is embedded in the skill (no install needed); alias it for readability:
+alias browser-handoff="node $PWD/skills/browser-auth-handoff/scripts/handoff/browser-handoff.mjs"
+
 # 1. extension: chrome://extensions → Developer mode → Load unpacked → ./extension
 
 # 2. pair (uses the hosted relay by default)
-node cli/bin/browser-handoff.js pair --name my-agent
+browser-handoff pair --name my-agent
 #   prints a code like  ABCD-EFGH ; enter it in the extension popup
 
 # — or run everything locally —
 npm run relay                       # http://127.0.0.1:8787
-node cli/bin/browser-handoff.js pair --name my-agent --relay http://127.0.0.1:8787
+browser-handoff pair --name my-agent --relay http://127.0.0.1:8787
 #   in the popup, set the Relay field to http://127.0.0.1:8787 before entering the code
 ```
 
@@ -59,7 +62,7 @@ local test site (user `alice` / password `wonderland`):
 npm run testsite                    # http://127.0.0.1:4321
 
 # ask for a session; a request window pops in Chrome — click Start, log in, click Done
-node cli/bin/browser-handoff.js request \
+browser-handoff request \
   --origins http://127.0.0.1:4321 \
   --hint http://127.0.0.1:4321/cookie/app \
   --label "Read the cookie app" \
@@ -67,7 +70,7 @@ node cli/bin/browser-handoff.js request \
 
 # then import ./session.json into your browser context and continue (see the skill)
 node skills/browser-auth-handoff/scripts/import-bundle.mjs ./session.json http://127.0.0.1:4321/cookie/app
-node cli/bin/browser-handoff.js report --ok
+browser-handoff report --ok
 ```
 
 `HANDOFF_RELAY` (or `--relay`) overrides the default relay for `browser-handoff pair`; the relay URL is
