@@ -17,7 +17,7 @@ import { chromium } from 'playwright';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const EXT_DIR = path.join(ROOT, 'extension');
-const HANDOFF = path.join(ROOT, 'cli', 'bin', 'browser-handoff.js');
+const HANDOFF = path.join(ROOT, 'skills', 'browser-auth-handoff', 'scripts', 'handoff', 'browser-handoff.mjs');
 const AGENT_SIM = path.join(ROOT, 'test', 'agent-sim.mjs');
 const RELAY_PORT = 18787;
 const PROXY_PORT = 18788;
@@ -271,8 +271,8 @@ try {
   check('tier 2: `browser-handoff proxy` reports proxy for learned origin', /"server"/.test(po.stdout), po.stdout.trim());
 
   // ---- signatures: Node crypto and the extension crypto must interoperate (spec §5)
-  const nodeCrypto = await import(new URL('../cli/src/crypto.js', import.meta.url));
-  const nacl = (await import('tweetnacl')).default;
+  const nodeCrypto = await import(new URL('../skills/browser-auth-handoff/scripts/handoff/crypto.js', import.meta.url));
+  const nacl = (await import(new URL('../skills/browser-auth-handoff/scripts/handoff/nacl-fast.cjs', import.meta.url))).default;
   const kp = nacl.sign.keyPair();
   const nodePk = Buffer.from(kp.publicKey).toString('base64');
   const nodeEnv = { v: 1, pairing_id: 'x', msg_id: 'm1', type: 'needs_session', ts: 123, from: 'agent', payload: 'Zm9v', sig: '' };

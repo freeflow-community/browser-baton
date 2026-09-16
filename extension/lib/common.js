@@ -1,5 +1,5 @@
 // Shared helpers for the extension (service worker + popup).
-// Mirrors cli/src/crypto.js: sealed-box equivalent on tweetnacl box,
+// Mirrors skills/browser-auth-handoff/scripts/handoff/crypto.js: sealed-box equivalent on tweetnacl box,
 // wire format ephemeral_pk(32) || nonce(24) || ciphertext. No signatures in MVP.
 /* global nacl */
 

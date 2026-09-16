@@ -21,7 +21,7 @@ import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
 import { newContextFromBundle, loadBundle } from '../skills/browser-auth-handoff/scripts/import-bundle.mjs';
 
-const HANDOFF = fileURLToPath(new URL('../cli/bin/browser-handoff.js', import.meta.url));
+const HANDOFF = fileURLToPath(new URL('../skills/browser-auth-handoff/scripts/handoff/browser-handoff.mjs', import.meta.url));
 const log = (...a) => console.error('[agent-sim]', ...a);
 
 const { values, positionals } = parseArgs({
