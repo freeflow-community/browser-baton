@@ -108,15 +108,18 @@ async function pendingRequests(page) {
 }
 
 async function clickDone(page) {
-  const card = await waitFor(async () => {
-    const cards = await page.$$('.request');
-    for (const c of cards) {
-      const btn = await c.$('button.done');
-      if (btn && (await btn.isVisible())) return c;
-    }
-    return null;
-  }, { what: 'a pending request card in the popup' });
-  await (await card.$('button.done')).click();
+  // Start (if still pending) opens the login tab; Done then sends the session.
+  // Re-query each step because the popup re-renders the card on every state change.
+  const start = await waitFor(async () => {
+    const s = await page.$('.request button.start');
+    return s && (await s.isVisible()) ? s : null;
+  }, { what: 'a Start button in the popup' });
+  await start.click();
+  const done = await waitFor(async () => {
+    const d = await page.$('.request button.done');
+    return d && (await d.isVisible()) ? d : null;
+  }, { what: 'a Done button after Start' });
+  await done.click();
   await page.waitForSelector('.request.sent, .request.reported-ok, .request.reported-bad', { timeout: 30_000 });
 }
 
