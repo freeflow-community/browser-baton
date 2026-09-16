@@ -3,6 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "bin": { "handoff": "./bin/handoff.js" },
-  "dependencies": { "tweetnacl": "^1.0.3" }
+  "bin": {
+    "browser-handoff": "./bin/browser-handoff.js"
+  },
+  "dependencies": {
+    "tweetnacl": "^1.0.3"
+  }
 }

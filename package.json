@@ -9,6 +9,6 @@
     "relay": "node relay/server.js",
     "testsite": "node testsite/server.js",
     "test:e2e": "node test/e2e.mjs",
-    "check": "node --check relay/server.js && node --check cli/bin/handoff.js && node --check extension/background.js && node --check extension/popup.js && node --check extension/lib/common.js && node --check testsite/server.js && node --check test/agent-sim.mjs && node --check test/e2e.mjs"
+    "check": "node --check relay/server.js && node --check cli/bin/browser-handoff.js && node --check extension/background.js && node --check extension/popup.js && node --check extension/lib/common.js && node --check testsite/server.js && node --check test/agent-sim.mjs && node --check test/e2e.mjs"
   }
 }

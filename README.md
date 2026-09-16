@@ -7,10 +7,10 @@ for the affected origins. Implements §13 of `session-handoff-spec.md`.
 ```
  agent (any browser driver)   relay (this repo)          human's Chrome
  ──────────────────────────   ─────────────────          ──────────────
- handoff request ───────────▶ queue ──────WS───────────▶ request window
+ browser-handoff request ───────────▶ queue ──────WS───────────▶ request window
                                                           human logs in, clicks Done
- bundle.json ◀── handoff request ◀──HTTPS── queue ◀─HTTP─ session_bundle (sealed box)
- import cookies + localStorage, reload, handoff report ──▶ ✓ / ✗ shown in extension
+ bundle.json ◀── browser-handoff request ◀──HTTPS── queue ◀─HTTP─ session_bundle (sealed box)
+ import cookies + localStorage, reload, browser-handoff report ──▶ ✓ / ✗ shown in extension
 ```
 
 Payloads are end-to-end encrypted (X25519 sealed boxes via tweetnacl); the relay
@@ -22,8 +22,8 @@ stores opaque envelopes only. Every envelope is Ed25519-signed by its sender and
 |---|---|
 | `relay/` | Single-process relay: pairing registry, per-pairing queues, WebSocket for the extension, long-poll for the CLI, plus a per-pairing CONNECT/forward **proxy** for tier 2. In-memory with a JSON snapshot (`relay/data/state.json`). |
 | `extension/` | Chrome MV3 extension. Registers **many agents** (an Agents list with add / rename / revoke), one WebSocket per pairing. A request auto-opens a compact window (Start / Done / Decline) labeled with the requesting agent; after Start, a floating panel is injected onto the login tab so Done is right there, surviving the login redirects. Exports cookies (`chrome.cookies`) and localStorage for the requested origins. For tier 2, applies a scoped PAC so the login egresses through the relay proxy. |
-| `cli/` | `handoff pair | request | report | proxy | agents | use | status | revoke`. Config in `$HANDOFF_HOME` or `~/.handoff/`. |
-| `skills/browser-auth-handoff/` | **How an agent uses this.** Agent-facing skill: recognize an auth wall (agent's own judgment), request a session with the `handoff` CLI, import the bundle, verify, report. Bundles a reusable Playwright importer (`scripts/import-bundle.mjs`) and per-driver recipes for Puppeteer / chrome-devtools MCP / CDP (`reference/drivers.md`). |
+| `cli/` | `browser-handoff pair | request | report | proxy | agents | use | status | revoke`. Config in `$HANDOFF_HOME` or `~/.handoff/`. |
+| `skills/browser-auth-handoff/` | **How an agent uses this.** Agent-facing skill: recognize an auth wall (agent's own judgment), request a session with the `browser-handoff` CLI, import the bundle, verify, report. Bundles a reusable Playwright importer (`scripts/import-bundle.mjs`) and per-driver recipes for Puppeteer / chrome-devtools MCP / CDP (`reference/drivers.md`). |
 | `testsite/` | Local toy site with a cookie-auth app and a localStorage-token app. |
 | `test/e2e.mjs` | Automated run of the four MVP success criteria with the real extension loaded in Chromium. |
 | `test/agent-sim.mjs` | The scripted "agent" the e2e suite drives (request → import → verify → report), so the suite exercises the full stack without a real LLM. Not a component anyone runs by hand — a real agent follows the skill instead. |
@@ -43,12 +43,12 @@ npx playwright install chromium     # for the e2e test
 # 1. extension: chrome://extensions → Developer mode → Load unpacked → ./extension
 
 # 2. pair (uses the hosted relay by default)
-node cli/bin/handoff.js pair --name my-agent
+node cli/bin/browser-handoff.js pair --name my-agent
 #   prints a code like  ABCD-EFGH ; enter it in the extension popup
 
 # — or run everything locally —
 npm run relay                       # http://127.0.0.1:8787
-node cli/bin/handoff.js pair --name my-agent --relay http://127.0.0.1:8787
+node cli/bin/browser-handoff.js pair --name my-agent --relay http://127.0.0.1:8787
 #   in the popup, set the Relay field to http://127.0.0.1:8787 before entering the code
 ```
 
@@ -59,7 +59,7 @@ local test site (user `alice` / password `wonderland`):
 npm run testsite                    # http://127.0.0.1:4321
 
 # ask for a session; a request window pops in Chrome — click Start, log in, click Done
-node cli/bin/handoff.js request \
+node cli/bin/browser-handoff.js request \
   --origins http://127.0.0.1:4321 \
   --hint http://127.0.0.1:4321/cookie/app \
   --label "Read the cookie app" \
@@ -67,17 +67,17 @@ node cli/bin/handoff.js request \
 
 # then import ./session.json into your browser context and continue (see the skill)
 node skills/browser-auth-handoff/scripts/import-bundle.mjs ./session.json http://127.0.0.1:4321/cookie/app
-node cli/bin/handoff.js report --ok
+node cli/bin/browser-handoff.js report --ok
 ```
 
-`HANDOFF_RELAY` (or `--relay`) overrides the default relay for `handoff pair`; the relay URL is
+`HANDOFF_RELAY` (or `--relay`) overrides the default relay for `browser-handoff pair`; the relay URL is
 stored with the pairing afterwards, so later commands reuse it.
 
 ## Using it from an agent
 
 `skills/browser-auth-handoff/` is a Claude Code skill: it tells any agent driving a browser
 how to recognize an auth wall (its own judgment, no detector), request a session with the
-`handoff` CLI, import the bundle with `scripts/import-bundle.mjs` (Playwright) or the
+`browser-handoff` CLI, import the bundle with `scripts/import-bundle.mjs` (Playwright) or the
 `reference/drivers.md` recipes (Puppeteer, chrome-devtools MCP, CDP), verify, and report. To
 make it available to Claude Code, copy or symlink it into a skills directory:
 
@@ -88,12 +88,12 @@ ln -s "$PWD/skills/browser-auth-handoff" ~/.claude/skills/browser-auth-handoff
 ## CLI
 
 ```
-handoff pair    --name NAME [--relay URL]
-handoff request --origins a,b [--hint URL] [--label TEXT] [--timeout 30m] [--out FILE] [--tier 1|2]
-handoff report  [--request ID] (--ok | --failed "reason")
-handoff proxy   --origins a,b
-handoff status
-handoff revoke  [PAIRING_ID]
+browser-handoff pair    --name NAME [--relay URL]
+browser-handoff request --origins a,b [--hint URL] [--label TEXT] [--timeout 30m] [--out FILE] [--tier 1|2]
+browser-handoff report  [--request ID] (--ok | --failed "reason")
+browser-handoff proxy   --origins a,b
+browser-handoff status
+browser-handoff revoke  [PAIRING_ID]
 ```
 
 `request` writes the bundle to `--out` and prints `{"request_id","proxied":false,"silent":false,"out"}`
@@ -113,12 +113,12 @@ Some sites bind a session to the IP it was minted from, so a bundle replayed fro
 IP is rejected. Tier 2 routes both the human's login and the agent's later traffic through the
 relay's per-pairing proxy, so both share the relay's egress IP.
 
-- `handoff request --tier 2 …` sends a tier-2 request. On Start, the extension applies a scoped
+- `browser-handoff request --tier 2 …` sends a tier-2 request. On Start, the extension applies a scoped
   PAC (only the requested hosts go through the proxy) and answers the proxy's auth challenge.
 - The reply's stdout JSON comes back `{"proxied": true, "proxy": {server, username, password}, …}`.
   The agent builds its browser context with that proxy (the skill's importer takes a `proxy` option).
 - Tier is learned: a failed tier-1 report marks the origins as tier-2 candidates, so a later
-  `request` without `--tier` escalates automatically. `handoff proxy --origins a,b` prints the
+  `request` without `--tier` escalates automatically. `browser-handoff proxy --origins a,b` prints the
   proxy settings when those origins are known to need it, else `null`.
 
 Egress stickiness is per pairing; in the single-process relay there is one egress IP, so a real
@@ -133,8 +133,8 @@ Design in `multi-agent-spec.md`; Phase 1 is implemented.
   (paste a code), renames, and revokes them individually. Every request is attributed to the
   agent it came from — verified by that pairing's token and Ed25519 signature, never a
   self-asserted field — and the badge, window, and in-page panel name that agent.
-- **One agent, many browsers.** Pair each browser (optionally `handoff pair --label NAME`).
-  `handoff agents` lists them; `handoff request --pairing <id|label>` targets one; `handoff use
+- **One agent, many browsers.** Pair each browser (optionally `browser-handoff pair --label NAME`).
+  `browser-handoff agents` lists them; `browser-handoff request --pairing <id|label>` targets one; `browser-handoff use
   <id|label>` sets the default so a plain `request` goes there (otherwise the newest pairing).
 - **Tier-2 caveat:** only one tier-2 login runs at a time per browser, since the proxy auth
   can't tell which agent a connection belongs to; a second tier-2 Start is refused until the
