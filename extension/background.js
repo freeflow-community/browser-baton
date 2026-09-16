@@ -402,6 +402,17 @@ chrome.windows.onRemoved.addListener(async (winId) => {
   if ((await store.get('requestWindowId', null)) === winId) await chrome.storage.local.remove('requestWindowId');
 });
 
+// Close the request window once nothing is left to act on — but keep it open while
+// any request (from any agent) is still pending or in progress.
+async function closeRequestWindowIfIdle() {
+  const requests = await getRequests();
+  if (Object.values(requests).some((r) => r.state === 'pending' || r.state === 'started')) return;
+  const winId = await store.get('requestWindowId', null);
+  if (winId == null) return;
+  await chrome.storage.local.remove('requestWindowId');
+  try { await chrome.windows.remove(winId); } catch { /* already closed by the human */ }
+}
+
 // ---------------------------------------------------------------- tier-2 proxy (spec §7 PAC)
 //
 // For a tier-2 request the human's login must egress from the relay, so we route
@@ -878,6 +889,7 @@ async function finishRequest(request_id) {
   requests[request_id] = { ...r, state: 'sent', sent_at: Date.now(), summary: summarize(bundle), proxied };
   await setRequests(requests);
   if (r.tab_id != null) await markPanel(r.tab_id, 'sent'); // reflect if Done came from the popup window
+  await closeRequestWindowIfIdle(); // the in-page overlay confirmed it; the window is no longer needed
   await appendLog({ kind: 'sent', request_id, origins: r.origins, text: `Sent ${summarize(bundle)} for ${r.origins.join(', ')}${proxied ? ' (tier 2)' : ''}` });
   return summarize(bundle);
 }

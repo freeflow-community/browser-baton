@@ -167,6 +167,12 @@ try {
   ).catch(() => null);
   check('request: extension auto-opens a window on a request', Boolean(reqWindow));
   await clickDone(popup);
+  // With nothing else pending, the request window should close itself after Done.
+  const windowClosed = await waitFor(
+    () => !context.pages().some((pg) => pg.url().includes('popup.html?window=1')),
+    { what: 'request window to close after Done', timeout: 10_000 },
+  ).then(() => true, () => false);
+  check('request: window auto-closes after the session is confirmed', windowClosed);
   let hr = await agent.done;
   check('cookie site: agent lands past the login', hr.code === 0 && /ok: landed past the login/.test(hr.stderr), `exit ${hr.code}`);
   const cookieBundle = JSON.parse(fs.readFileSync(path.join(TMP, 'cookie-bundle.json'), 'utf8'));
