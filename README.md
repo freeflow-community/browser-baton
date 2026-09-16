@@ -32,18 +32,24 @@ stores opaque envelopes only. Every envelope is Ed25519-signed by its sender and
 
 Requires Node 20+ and Chrome 116+.
 
+By default the CLI and extension use the hosted relay at `https://browser-relay.freeflow.im`, so
+you can skip running your own. Override it with `--relay` / `HANDOFF_RELAY` (CLI) or the popup's
+Relay field (extension) — for local development, point both at `http://127.0.0.1:8787`.
+
 ```sh
 npm install
 npx playwright install chromium     # for the e2e test
 
-# 1. relay
-npm run relay                       # http://127.0.0.1:8787
+# 1. extension: chrome://extensions → Developer mode → Load unpacked → ./extension
 
-# 2. extension: chrome://extensions → Developer mode → Load unpacked → ./extension
-
-# 3. pair
+# 2. pair (uses the hosted relay by default)
 node cli/bin/handoff.js pair --name my-agent
-#   prints a code like  ABCD-EFGH ; enter it in the extension popup (relay URL http://127.0.0.1:8787)
+#   prints a code like  ABCD-EFGH ; enter it in the extension popup
+
+# — or run everything locally —
+npm run relay                       # http://127.0.0.1:8787
+node cli/bin/handoff.js pair --name my-agent --relay http://127.0.0.1:8787
+#   in the popup, set the Relay field to http://127.0.0.1:8787 before entering the code
 ```
 
 Now an agent can request a session whenever it hits an auth wall. By hand, against the
@@ -64,8 +70,8 @@ node skills/browser-auth-handoff/scripts/import-bundle.mjs ./session.json http:/
 node cli/bin/handoff.js report --ok
 ```
 
-Set `HANDOFF_RELAY` (or `--relay`) to point `handoff pair` at a hosted relay; the relay
-URL is stored with the pairing afterwards.
+`HANDOFF_RELAY` (or `--relay`) overrides the default relay for `handoff pair`; the relay URL is
+stored with the pairing afterwards, so later commands reuse it.
 
 ## Using it from an agent
 

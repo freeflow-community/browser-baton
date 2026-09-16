@@ -8,7 +8,7 @@
 importScripts('lib/nacl-fast.min.js', 'lib/common.js');
 const C = self.HandoffCommon;
 
-const DEFAULT_RELAY = 'http://127.0.0.1:8787';
+const DEFAULT_RELAY = 'https://browser-relay.freeflow.im'; // override via the popup's Relay field
 // Hardcoded MVP denylist (spec §13): identity-provider account management.
 const DENYLIST = ['accounts.google.com', 'login.microsoftonline.com', 'www.paypal.com'];
 const KEEPALIVE_ALARM = 'handoff-keepalive';
