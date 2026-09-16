@@ -17,7 +17,7 @@ import { chromium } from 'playwright';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const EXT_DIR = path.join(ROOT, 'extension');
-const HANDOFF = path.join(ROOT, 'cli', 'bin', 'handoff.js');
+const HANDOFF = path.join(ROOT, 'cli', 'bin', 'browser-handoff.js');
 const AGENT_SIM = path.join(ROOT, 'test', 'agent-sim.mjs');
 const RELAY_PORT = 18787;
 const PROXY_PORT = 18788;
@@ -268,7 +268,7 @@ try {
   // CLI learned these origins are tier 2.
   const proxyOut = run('proxy-learned', [HANDOFF, 'proxy', '--origins', TIER2_SITE]);
   const po = await proxyOut.done;
-  check('tier 2: `handoff proxy` reports proxy for learned origin', /"server"/.test(po.stdout), po.stdout.trim());
+  check('tier 2: `browser-handoff proxy` reports proxy for learned origin', /"server"/.test(po.stdout), po.stdout.trim());
 
   // ---- signatures: Node crypto and the extension crypto must interoperate (spec §5)
   const nodeCrypto = await import(new URL('../cli/src/crypto.js', import.meta.url));

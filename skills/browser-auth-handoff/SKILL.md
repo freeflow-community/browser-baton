@@ -22,14 +22,14 @@ in doubt and the page is clearly asking a human to authenticate, request a sessi
 
 ## Prerequisites — check before you start
 
-The tool is the `handoff` CLI (from the browser-baton project) plus a running relay and a
+The tool is the `browser-handoff` CLI (from the browser-baton project) plus a running relay and a
 one-time pairing with the human's Chrome extension.
 
-1. Find the CLI. If `handoff` is on `PATH`, use it. Otherwise invoke
-   `node <browser-baton>/cli/bin/handoff.js`. Set `HANDOFF="handoff"` or
-   `HANDOFF="node /path/to/cli/bin/handoff.js"` and use `$HANDOFF` below.
+1. Find the CLI. If `browser-handoff` is on `PATH`, use it. Otherwise invoke
+   `node <browser-baton>/cli/bin/browser-handoff.js`. Set `HANDOFF="browser-handoff"` or
+   `HANDOFF="node /path/to/cli/bin/browser-handoff.js"` and use `$HANDOFF` below.
 2. Run `$HANDOFF status`. You want a line showing a pairing that is **extension online**.
-   - No pairing, or "not paired" → tell the human: run `handoff pair` where you (the agent)
+   - No pairing, or "not paired" → tell the human: run `browser-handoff pair` where you (the agent)
      run, then enter the printed code in their Chrome extension. Do not proceed until paired.
    - Pairing exists but extension offline → ask the human to open Chrome (the service worker
      reconnects) and confirm the relay is running.

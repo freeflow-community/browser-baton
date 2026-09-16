@@ -21,7 +21,7 @@ import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
 import { newContextFromBundle, loadBundle } from '../skills/browser-auth-handoff/scripts/import-bundle.mjs';
 
-const HANDOFF = fileURLToPath(new URL('../cli/bin/handoff.js', import.meta.url));
+const HANDOFF = fileURLToPath(new URL('../cli/bin/browser-handoff.js', import.meta.url));
 const log = (...a) => console.error('[agent-sim]', ...a);
 
 const { values, positionals } = parseArgs({
@@ -71,7 +71,7 @@ try {
   if (values.tier) reqArgs.push('--tier', values.tier);
   const req = handoff(reqArgs);
   if (req.code !== 0) {
-    log(`handoff request exited ${req.code} (${{ 2: 'declined', 3: 'timeout', 4: 'unpaired' }[req.code] || 'error'})`);
+    log(`browser-handoff request exited ${req.code} (${{ 2: 'declined', 3: 'timeout', 4: 'unpaired' }[req.code] || 'error'})`);
     exitCode = req.code;
   } else {
     const res = JSON.parse(req.stdout.trim().split('\n').pop());

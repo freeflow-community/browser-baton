@@ -1,11 +1,11 @@
 #!/usr/bin/env node
-// handoff — Session Handoff CLI (spec §8, §13).
+// browser-handoff — Session Handoff CLI (spec §8, §13).
 //
-//   handoff pair --name NAME [--relay URL]
-//   handoff request --origins a,b [--hint URL] [--label TEXT] [--timeout 30m] [--out FILE]
-//   handoff report [--request ID] --ok | --failed "reason"
-//   handoff status
-//   handoff revoke [PAIRING_ID]
+//   browser-handoff pair --name NAME [--relay URL]
+//   browser-handoff request --origins a,b [--hint URL] [--label TEXT] [--timeout 30m] [--out FILE]
+//   browser-handoff report [--request ID] --ok | --failed "reason"
+//   browser-handoff status
+//   browser-handoff revoke [PAIRING_ID]
 //
 // Exit codes (request): 0 bundle written, 2 declined, 3 timeout, 4 unpaired, 1 other error.
 
@@ -30,17 +30,17 @@ class CliError extends Error {
 
 function usage() {
   log(`usage:
-  handoff pair    --name NAME [--relay URL]
-  handoff request --origins a,b [--hint URL] [--label TEXT] [--timeout 30m] [--out FILE] [--tier 1|2] [--pairing ID|LABEL]
-  handoff report  [--request ID] (--ok | --failed "reason")
-  handoff proxy   --origins a,b
-  handoff agents                          list paired browsers
-  handoff use     <ID|LABEL>              set the default browser for requests
-  handoff status
-  handoff revoke  [ID|LABEL]
+  browser-handoff pair    --name NAME [--relay URL]
+  browser-handoff request --origins a,b [--hint URL] [--label TEXT] [--timeout 30m] [--out FILE] [--tier 1|2] [--pairing ID|LABEL]
+  browser-handoff report  [--request ID] (--ok | --failed "reason")
+  browser-handoff proxy   --origins a,b
+  browser-handoff agents                          list paired browsers
+  browser-handoff use     <ID|LABEL>              set the default browser for requests
+  browser-handoff status
+  browser-handoff revoke  [ID|LABEL]
 
 Multi-browser: pair each browser (optionally --label NAME); target one with
---pairing <id|label>, or set a default with \`handoff use\`.
+--pairing <id|label>, or set a default with \`browser-handoff use\`.
 
 env: HANDOFF_HOME (config dir, default ~/.handoff), HANDOFF_RELAY (relay URL for pair)
 exit codes (request): 0 bundle, 2 declined, 3 timeout, 4 unpaired`);
@@ -98,13 +98,13 @@ function proxySettings(pairing) {
 
 function requirePairing(values) {
   const pairing = cfg.currentPairing(values.pairing);
-  if (!pairing) throw new CliError('not paired: run `handoff pair` first', EXIT.UNPAIRED);
+  if (!pairing) throw new CliError('not paired: run `browser-handoff pair` first', EXIT.UNPAIRED);
   return pairing;
 }
 
 function mapRelayError(e) {
   if (e instanceof RelayError) {
-    if (e.unpaired) return new CliError(`unpaired: ${e.body?.error || e.status} (run \`handoff pair\`)`, EXIT.UNPAIRED);
+    if (e.unpaired) return new CliError(`unpaired: ${e.body?.error || e.status} (run \`browser-handoff pair\`)`, EXIT.UNPAIRED);
     return new CliError(e.body?.error || e.message, EXIT.ERROR);
   }
   return e;
@@ -160,7 +160,7 @@ async function cmdPair(values) {
     log(`Paired with ${pairing.ext_display_name}  [${fingerprint(pairing.ext_enc_pk)}]  (label: ${pairing.label})`);
     log(`Pairing id: ${pairing.pairing_id}`);
     log('Confirm the fingerprints match on both sides.');
-    if (previous.length) log(`Note: ${previous.length} other browser(s) paired. Target one with \`--pairing <id|label>\`, or \`handoff use <id|label>\` to set a default. \`handoff agents\` lists them.`);
+    if (previous.length) log(`Note: ${previous.length} other browser(s) paired. Target one with \`--pairing <id|label>\`, or \`browser-handoff use <id|label>\` to set a default. \`browser-handoff agents\` lists them.`);
     return EXIT.OK;
   }
 }
@@ -374,7 +374,7 @@ async function cmdStatus() {
   log(`agent id: ${identity.agent_id}  [${fingerprint(identity.enc_pk)}]`);
   const pairings = cfg.listPairings();
   const def = cfg.getDefaultPairing();
-  if (!pairings.length) log('pairings: none (run `handoff pair`)');
+  if (!pairings.length) log('pairings: none (run `browser-handoff pair`)');
   for (const p of pairings) {
     let state = 'unknown';
     try {
@@ -470,6 +470,6 @@ main()
   .then((code) => process.exit(code))
   .catch((e) => {
     const err = mapRelayError(e);
-    log(`handoff: ${err.message}`);
+    log(`browser-handoff: ${err.message}`);
     process.exit(err.code || EXIT.ERROR);
   });
