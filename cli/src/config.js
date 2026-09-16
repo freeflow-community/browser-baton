@@ -69,11 +69,31 @@ export function deletePairing(id) {
   try { fs.unlinkSync(path.join(pairingsDir(), `${id}.json`)); } catch { /* ignore */ }
 }
 
-/** MVP: one pairing. Uses --pairing if given, else the most recent. */
-export function currentPairing(explicitId) {
+/** Resolve a pairing by id-prefix or label; else the default; else the most recent. */
+export function currentPairing(selector) {
   const all = listPairings();
-  if (explicitId) return all.find((p) => p.pairing_id === explicitId || p.pairing_id.startsWith(explicitId)) || null;
+  if (selector) {
+    const s = selector.toLowerCase();
+    return all.find((p) =>
+      p.pairing_id === selector
+      || p.pairing_id.startsWith(selector)
+      || (p.label && p.label.toLowerCase() === s)
+      || (p.ext_display_name && p.ext_display_name.toLowerCase() === s),
+    ) || null;
+  }
+  const def = getDefaultPairing();
+  if (def) {
+    const p = all.find((x) => x.pairing_id === def);
+    if (p) return p;
+  }
   return all[0] || null;
+}
+
+export function getDefaultPairing() {
+  return readJson(path.join(home(), 'default.json'))?.pairing_id || null;
+}
+export function setDefaultPairing(id) {
+  writeJson(path.join(home(), 'default.json'), { pairing_id: id });
 }
 
 export function pendingDir() {

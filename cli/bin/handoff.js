@@ -32,11 +32,16 @@ class CliError extends Error {
 function usage() {
   log(`usage:
   handoff pair    [--name NAME] [--relay URL]
-  handoff request --origins a,b [--hint URL] [--label TEXT] [--timeout 30m] [--out FILE] [--tier 1|2] [--silent]
+  handoff request --origins a,b [--hint URL] [--label TEXT] [--timeout 30m] [--out FILE] [--tier 1|2] [--pairing ID|LABEL]
   handoff report  [--request ID] (--ok | --failed "reason")
   handoff proxy   --origins a,b
+  handoff agents                          list paired browsers
+  handoff use     <ID|LABEL>              set the default browser for requests
   handoff status
-  handoff revoke  [PAIRING_ID]
+  handoff revoke  [ID|LABEL]
+
+Multi-browser: pair each browser (optionally --label NAME); target one with
+--pairing <id|label>, or set a default with \`handoff use\`.
 
 env: HANDOFF_HOME (config dir, default ~/.handoff), HANDOFF_RELAY (relay URL for pair)
 exit codes (request): 0 bundle, 2 declined, 3 timeout, 4 unpaired`);
@@ -139,6 +144,7 @@ async function cmdPair(values) {
       relay: relayUrl,
       token: r.token,
       agent_id: identity.agent_id,
+      label: values.label || r.ext.display_name || display_name, // local name for this browser
       ext_id: r.ext.ext_id,
       ext_enc_pk: r.ext.ext_enc_pk,
       ext_sign_pk: r.ext.ext_sign_pk,
@@ -149,10 +155,10 @@ async function cmdPair(values) {
     const previous = cfg.listPairings();
     cfg.savePairing(pairing);
     log('');
-    log(`Paired with ${pairing.ext_display_name}  [${fingerprint(pairing.ext_enc_pk)}]`);
+    log(`Paired with ${pairing.ext_display_name}  [${fingerprint(pairing.ext_enc_pk)}]  (label: ${pairing.label})`);
     log(`Pairing id: ${pairing.pairing_id}`);
     log('Confirm the fingerprints match on both sides.');
-    if (previous.length) log(`Note: ${previous.length} older pairing(s) remain; this one is now current. Use \`handoff revoke <id>\` to clean up.`);
+    if (previous.length) log(`Note: ${previous.length} other browser(s) paired. Target one with \`--pairing <id|label>\`, or \`handoff use <id|label>\` to set a default. \`handoff agents\` lists them.`);
     return EXIT.OK;
   }
 }
@@ -365,6 +371,7 @@ async function cmdStatus() {
   log(`config:   ${cfg.home()}`);
   log(`agent id: ${identity.agent_id}  [${fingerprint(identity.enc_pk)}]`);
   const pairings = cfg.listPairings();
+  const def = cfg.getDefaultPairing();
   if (!pairings.length) log('pairings: none (run `handoff pair`)');
   for (const p of pairings) {
     let state = 'unknown';
@@ -374,7 +381,8 @@ async function cmdStatus() {
     } catch (e) {
       state = e instanceof RelayError && e.unpaired ? 'REVOKED or unknown at relay' : `relay error: ${e.message}`;
     }
-    log(`pairing:  ${p.pairing_id}  ${p.ext_display_name} [${fingerprint(p.ext_enc_pk)}]  via ${p.relay}  — ${state}`);
+    const mark = p.pairing_id === def ? '  (default)' : '';
+    log(`pairing:  ${p.label || p.ext_display_name}  ${p.pairing_id.slice(0, 8)}  [${fingerprint(p.ext_enc_pk)}]  via ${p.relay}${mark}  — ${state}`);
   }
   const now = Math.floor(Date.now() / 1000);
   const pending = cfg.listPending();
@@ -398,12 +406,20 @@ async function cmdRevoke(values, positional) {
   const pairing = requirePairing({ pairing: positional[0] || values.pairing });
   try {
     await new RelayClient(pairing.relay, pairing.token).revoke(pairing.pairing_id);
-    log(`revoked ${pairing.pairing_id} at relay`);
+    log(`revoked ${pairing.label || pairing.pairing_id} at relay`);
   } catch (e) {
     log(`relay revoke failed (${e.message}); removing local record anyway`);
   }
   cfg.deletePairing(pairing.pairing_id);
+  if (cfg.getDefaultPairing() === pairing.pairing_id) cfg.setDefaultPairing(''); // clear stale default
   for (const p of cfg.listPending()) if (p.pairing_id === pairing.pairing_id) cfg.deletePending(p.request_id);
+  return EXIT.OK;
+}
+
+async function cmdUse(values, positional) {
+  const pairing = requirePairing({ pairing: positional[0] || values.pairing });
+  cfg.setDefaultPairing(pairing.pairing_id);
+  log(`default pairing set to ${pairing.label || pairing.ext_display_name} (${pairing.pairing_id})`);
   return EXIT.OK;
 }
 
@@ -439,7 +455,8 @@ async function main() {
     case 'request': return cmdRequest(values);
     case 'report': return cmdReport(values);
     case 'proxy': return cmdProxy(values);
-    case 'status': return cmdStatus(values);
+    case 'status': case 'agents': return cmdStatus(values);
+    case 'use': return cmdUse(values, rest);
     case 'revoke': return cmdRevoke(values, rest);
     default:
       usage();

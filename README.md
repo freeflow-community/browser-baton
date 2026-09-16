@@ -21,8 +21,8 @@ stores opaque envelopes only. Every envelope is Ed25519-signed by its sender and
 | Path | What |
 |---|---|
 | `relay/` | Single-process relay: pairing registry, per-pairing queues, WebSocket for the extension, long-poll for the CLI, plus a per-pairing CONNECT/forward **proxy** for tier 2. In-memory with a JSON snapshot (`relay/data/state.json`). |
-| `extension/` | Chrome MV3 extension. One pairing. A request auto-opens a compact window (Start / Done / Decline); after Start, a floating panel is injected onto the login tab so Done is right there, surviving the login redirects. Exports cookies (`chrome.cookies`) and localStorage (content script) for the requested origins. For tier 2, applies a scoped PAC so the login egresses through the relay proxy. |
-| `cli/` | `handoff pair | request | report | proxy | status | revoke`. Config in `$HANDOFF_HOME` or `~/.handoff/`. |
+| `extension/` | Chrome MV3 extension. Registers **many agents** (an Agents list with add / rename / revoke), one WebSocket per pairing. A request auto-opens a compact window (Start / Done / Decline) labeled with the requesting agent; after Start, a floating panel is injected onto the login tab so Done is right there, surviving the login redirects. Exports cookies (`chrome.cookies`) and localStorage for the requested origins. For tier 2, applies a scoped PAC so the login egresses through the relay proxy. |
+| `cli/` | `handoff pair | request | report | proxy | agents | use | status | revoke`. Config in `$HANDOFF_HOME` or `~/.handoff/`. |
 | `skills/browser-auth-handoff/` | **How an agent uses this.** Agent-facing skill: recognize an auth wall (agent's own judgment), request a session with the `handoff` CLI, import the bundle, verify, report. Bundles a reusable Playwright importer (`scripts/import-bundle.mjs`) and per-driver recipes for Puppeteer / chrome-devtools MCP / CDP (`reference/drivers.md`). |
 | `testsite/` | Local toy site with a cookie-auth app and a localStorage-token app. |
 | `test/e2e.mjs` | Automated run of the four MVP success criteria with the real extension loaded in Chromium. |
@@ -118,6 +118,22 @@ relay's per-pairing proxy, so both share the relay's egress IP.
 Egress stickiness is per pairing; in the single-process relay there is one egress IP, so a real
 multi-egress deployment is still future work (§12).
 
+## Multiple agents / browsers
+
+Design in `multi-agent-spec.md`; Phase 1 is implemented.
+
+- **Many agents, one browser.** The extension registers several agents at once, each a separate
+  pairing to its own agent identity, each with its own WebSocket. The popup's Agents list adds
+  (paste a code), renames, and revokes them individually. Every request is attributed to the
+  agent it came from — verified by that pairing's token and Ed25519 signature, never a
+  self-asserted field — and the badge, window, and in-page panel name that agent.
+- **One agent, many browsers.** Pair each browser (optionally `handoff pair --label NAME`).
+  `handoff agents` lists them; `handoff request --pairing <id|label>` targets one; `handoff use
+  <id|label>` sets the default so a plain `request` goes there (otherwise the newest pairing).
+- **Tier-2 caveat:** only one tier-2 login runs at a time per browser, since the proxy auth
+  can't tell which agent a connection belongs to; a second tier-2 Start is refused until the
+  first finishes.
+
 ## Tests
 
 ```sh
@@ -128,7 +144,10 @@ Starts a relay and the test site on private ports, launches Chromium with the ex
 pairs through the popup, logs the "human" in, runs the agent sim against both apps, kills a
 pending `request` and re-runs it to prove it resumes, restarts Chromium to prove the pairing
 survives, runs a full **tier-2** flow (PAC applied on Start, login and agent traffic both
-through the relay proxy, proxy cleared on Done, tier learned), and exercises Decline.
+through the relay proxy, proxy cleared on Done, tier learned), verifies **signature interop**
+between the Node and browser crypto, registers a **second agent** on the same browser and
+checks requests are attributed to the right agent and that revoking one leaves the other, and
+exercises Decline. 27 checks.
 
 ## Notes and known limits
 

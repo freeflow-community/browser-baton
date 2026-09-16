@@ -92,6 +92,7 @@ async function launchChrome() {
 
 async function openPopup() {
   const page = await context.newPage();
+  page.on('pageerror', (e) => console.log(`  [popup:error] ${e.message}`));
   await page.goto(`chrome-extension://${extId}/popup.html`);
   return page;
 }
@@ -147,13 +148,14 @@ try {
   await popup.fill('#relay', RELAY);
   await popup.fill('#code', code);
   await popup.click('#pair-btn');
-  await popup.waitForSelector('#paired-view:not([hidden])', { timeout: 15_000 });
+  await popup.waitForSelector('.agent', { timeout: 15_000 });
   const pairRes = await pair.done;
   check('pair: CLI exits 0 after the extension accepts', pairRes.code === 0, `exit ${pairRes.code}`);
-  await waitFor(() => popup.$('#conn-dot.online'), { what: 'extension online' });
+  await waitFor(() => popup.$('#summary-dot.online'), { what: 'extension online' });
   check('pair: extension connected to relay', true);
   const st = await popupState(popup);
-  check('pair: extension shows the agent name', st.pairing?.agent?.display_name === 'e2e-agent', st.pairing?.agent?.display_name);
+  const firstAgent = st.agents?.[0];
+  check('pair: extension shows the agent name', firstAgent?.agent?.display_name === 'e2e-agent', firstAgent?.agent?.display_name);
 
   // ---- 2. cookie-based site
   await humanLogin('/cookie/app');
@@ -202,10 +204,10 @@ try {
   await context.close();
   await launchChrome();
   popup = await openPopup();
-  await popup.waitForSelector('#paired-view:not([hidden])', { timeout: 15_000 });
-  await waitFor(() => popup.$('#conn-dot.online'), { what: 'extension online after restart' });
-  const relayStatus = await fetch(`${RELAY}/v1/pairings/${st.pairing.pairing_id}`, { headers: { authorization: `Bearer ${JSON.parse(fs.readFileSync(path.join(HOME, 'pairings', `${st.pairing.pairing_id}.json`), 'utf8')).token}` } }).then((r) => r.json());
-  check('restart: extension reconnects with the same pairing', relayStatus.ext_connected === true && relayStatus.pairing_id === st.pairing.pairing_id);
+  await popup.waitForSelector('.agent', { timeout: 15_000 });
+  await waitFor(() => popup.$('#summary-dot.online'), { what: 'extension online after restart' });
+  const relayStatus = await fetch(`${RELAY}/v1/pairings/${firstAgent.pairing_id}`, { headers: { authorization: `Bearer ${JSON.parse(fs.readFileSync(path.join(HOME, 'pairings', `${firstAgent.pairing_id}.json`), 'utf8')).token}` } }).then((r) => r.json());
+  check('restart: extension reconnects with the same pairing', relayStatus.ext_connected === true && relayStatus.pairing_id === firstAgent.pairing_id);
 
   // ---- 5. tier 2: login + agent traffic both egress through the relay proxy
   const agent2 = run('agent#tier2', [AGENT_SIM, `${TIER2_SITE}/cookie/app`, '--tier', '2', '--success', '#ok', '--timeout', '2m', '--out', path.join(TMP, 'tier2-bundle.json')]);
@@ -245,8 +247,8 @@ try {
   check('tier 2: agent lands past login via the proxy', a2.code === 0 && /ok: landed past the login/.test(a2.stderr), `exit ${a2.code}`);
 
   // The relay proxy should have carried traffic for the site host from this pairing.
-  const pairingToken = JSON.parse(fs.readFileSync(path.join(HOME, 'pairings', `${st.pairing.pairing_id}.json`), 'utf8')).token;
-  const relayStatus2 = await fetch(`${RELAY}/v1/pairings/${st.pairing.pairing_id}`, { headers: { authorization: `Bearer ${pairingToken}` } }).then((r) => r.json());
+  const pairingToken = JSON.parse(fs.readFileSync(path.join(HOME, 'pairings', `${firstAgent.pairing_id}.json`), 'utf8')).token;
+  const relayStatus2 = await fetch(`${RELAY}/v1/pairings/${firstAgent.pairing_id}`, { headers: { authorization: `Bearer ${pairingToken}` } }).then((r) => r.json());
   const proxied = (relayStatus2.proxy?.recent || []).filter((e) => String(e.host).includes(TIER2_HOST));
   check('tier 2: relay proxy carried the site traffic', proxied.length >= 1, `${proxied.length} proxied event(s)`);
 
@@ -279,6 +281,43 @@ try {
     return { env, pk: HandoffCommon.b64.encode(k.publicKey) };
   });
   check('signatures: Node verifies an extension-signed envelope', nodeCrypto.verifyEnvelope(extSigned.env, extSigned.pk) === true);
+
+  // ---- 6. multiple agents on one browser (multi-agent-spec Phase 1)
+  const HOME2 = path.join(TMP, 'handoff-home-2');
+  fs.mkdirSync(HOME2, { recursive: true });
+  const pair2 = run('pair2', [HANDOFF, 'pair', '--relay', RELAY, '--name', 'e2e-agent-2'], { env: { HANDOFF_HOME: HOME2 } });
+  const code2 = await waitFor(() => /Pairing code:\s+([A-Z2-9]{4}-[A-Z2-9]{4})/.exec(pair2.stderr)?.[1], { what: 'second pairing code' });
+  await popup.click('#add-toggle');
+  await popup.fill('#relay', RELAY);
+  await popup.fill('#code', code2);
+  await popup.fill('#label', 'second agent');
+  await popup.click('#pair-btn');
+  await waitFor(async () => (await popup.$$('.agent')).length >= 2, { what: 'a second agent row' });
+  await pair2.done;
+  const st2 = await popupState(popup);
+  check('multi-agent: two distinct agents registered on one browser', new Set(st2.agents.map((a) => a.agent.agent_id)).size === 2, `${st2.agents.length} agents`);
+
+  // A request from the second agent must be attributed to it, not the first.
+  // (The profile is still logged into the cookie app from step 2, so no re-login.)
+  const agentB = run('agent2', [AGENT_SIM, `${SITE}/cookie/app`, '--success', '#ok', '--timeout', '2m', '--out', path.join(TMP, 'a2-bundle.json')], { env: { HANDOFF_HOME: HOME2 } });
+  const a2req = await waitFor(async () => (await pendingRequests(popup)).find((r) => /agent-2|second agent/i.test(r.agent_name || '')), { what: 'a request attributed to the second agent' });
+  check('multi-agent: request identifies the requesting agent', /agent-2|second agent/i.test(a2req.agent_name), a2req.agent_name);
+  await clickDone(popup);
+  const aB = await agentB.done;
+  check('multi-agent: the second agent receives its bundle', aB.code === 0 && /ok: landed past the login/.test(aB.stderr), `exit ${aB.code}`);
+
+  // Revoking one agent leaves the other registered and connected.
+  const revokeBtn = await waitFor(async () => {
+    for (const row of await popup.$$('.agent')) {
+      const nm = await row.$eval('.name', (el) => el.textContent).catch(() => '');
+      if (/second agent|agent-2/i.test(nm)) return row.$('button.revoke');
+    }
+    return null;
+  }, { what: 'revoke button for the second agent' });
+  await revokeBtn.click();
+  await waitFor(async () => (await popup.$$('.agent')).length === 1, { what: 'the second agent to be removed' });
+  const st3 = await popupState(popup);
+  check('multi-agent: revoking one agent leaves the other', st3.agents.length === 1 && st3.agents[0].agent.display_name === 'e2e-agent');
 
   // ---- decline path
   const dec = run('request#decline', [HANDOFF, 'request', '--origins', SITE, '--label', 'decline test', '--timeout', '2m', '--out', path.join(TMP, 'never.json')]);
