@@ -16,6 +16,59 @@ for the affected origins. Implements §13 of `session-handoff-spec.md`.
 Payloads are end-to-end encrypted (X25519 sealed boxes via tweetnacl); the relay
 stores opaque envelopes only. Every envelope is Ed25519-signed by its sender and verified by the recipient (spec §5).
 
+## Install
+
+### Chrome extension
+
+The extension is prebuilt at [`dist/browser-handoff-extension.zip`](dist/browser-handoff-extension.zip)
+([direct download](https://github.com/freeflow-community/browser-baton/raw/main/dist/browser-handoff-extension.zip)).
+
+1. Download and unzip it into a folder you'll keep (the extension runs from that folder).
+2. Open `chrome://extensions`, turn on **Developer mode** (top right).
+3. Click **Load unpacked** and select the unzipped folder.
+4. Pin the **Session Handoff** icon. It defaults to the hosted relay
+   `https://browser-relay.freeflow.im`, so no configuration is needed.
+5. Pair it with an agent: get a code from `browser-handoff pair --name <agent>` (below), open the
+   extension, **Add agent**, and enter the code.
+
+(To rebuild the zip after changing the extension: `npm run build:ext`.)
+
+### Agent (skill + CLI)
+
+The `browser-auth-handoff` skill carries the `browser-handoff` CLI and the bundle importer, so
+installing the skill is the whole agent-side install (no `npm install`; crypto is vendored).
+
+Quickest, if you have the skill CLI:
+
+```sh
+npx skill add freeflow-community/browser-baton
+```
+
+**Or, copy this prompt into your coding agent** (Claude Code, etc.):
+
+```text
+Install the "browser-auth-handoff" skill from https://github.com/freeflow-community/browser-baton
+so you can hand off authenticated browser sessions from a human's Chrome:
+
+1. Clone the repo (git clone https://github.com/freeflow-community/browser-baton), or git pull if
+   you already have it.
+2. Symlink its skill into your skills directory, e.g.:
+   ln -s "$PWD/browser-baton/skills/browser-auth-handoff" ~/.claude/skills/browser-auth-handoff
+3. The CLI is embedded at skills/browser-auth-handoff/scripts/handoff/browser-handoff.mjs and runs
+   on Node with no install. Read the skill's SKILL.md and follow it.
+4. Start the shared browser (browser-handoff browser start) and attach over its CDP endpoint; when
+   you hit an auth wall, run `browser-handoff request --origins <origin> --hint <url> --load`.
+
+Then confirm the skill is installed and summarize how you'll use it.
+```
+
+Or install it manually:
+
+```sh
+git clone https://github.com/freeflow-community/browser-baton
+ln -s "$PWD/browser-baton/skills/browser-auth-handoff" ~/.claude/skills/browser-auth-handoff
+```
+
 ## Layout
 
 | Path | What |
