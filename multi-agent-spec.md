@@ -1,6 +1,6 @@
 # Multi-Agent / Multi-Browser — Design Spec
 
-Version 0.1 — Draft. Addendum to `session-handoff-spec.md`; section numbers below are local to this document.
+Version 0.1 — Draft. Addendum to `browser-session-share-spec.md`; section numbers below are local to this document.
 
 ## 1. Purpose
 

@@ -1,6 +1,6 @@
 // Minimal Chrome DevTools Protocol client and credential loader for the shared
 // browser (multi-agent shared-service model). Zero deps: Node's global fetch +
-// WebSocket. Injects a Session Handoff bundle (spec §6) into a running Chrome so
+// WebSocket. Injects a Browser Session Share bundle (spec §6) into a running Chrome so
 // its persistent profile holds the session for every attached agent.
 
 /** Connect to the browser-level CDP endpoint at http://127.0.0.1:<port>. */
