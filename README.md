@@ -4,6 +4,10 @@ A remote coding agent drives its own browser. When it hits a login wall, a human
 completes the login in their own Chrome and the agent receives a usable session
 for the affected origins. Implements §13 of `browser-session-share-spec.md`.
 
+<p align="center">
+  <img src="docs/extension-popup.png" alt="Browser Session Share extension popup showing agent requests to log into LinkedIn, X, and GitHub, each confirmed by the agent" width="380">
+</p>
+
 ```
  agent (any browser driver)   relay (this repo)          human's Chrome
  ──────────────────────────   ─────────────────          ──────────────
