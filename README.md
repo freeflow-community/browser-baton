@@ -4,6 +4,10 @@ A remote coding agent drives its own browser. When it hits a login wall, a human
 completes the login in their own Chrome and the agent receives a usable session
 for the affected origins. Implements §13 of `browser-session-share-spec.md`.
 
+<p align="center">
+  <img src="docs/extension-popup.png" alt="Browser Session Share extension popup showing agent requests to log into LinkedIn, X, and GitHub, each confirmed by the agent" width="380">
+</p>
+
 ```
  agent (any browser driver)   relay (this repo)          human's Chrome
  ──────────────────────────   ─────────────────          ──────────────
@@ -17,6 +21,18 @@ Payloads are end-to-end encrypted (X25519 sealed boxes via tweetnacl); the relay
 stores opaque envelopes only. Every envelope is Ed25519-signed by its sender and verified by the recipient (spec §5).
 
 ## Install
+
+Basic steps:
+
+1. **Install the Chrome extension** in your browser.
+2. **Install the Agent skill** on the machine where your agent runs (it carries the `browser-handoff` CLI).
+3. **Pair your agent to the Chrome extension.** The agent does this itself the first time it needs a
+   session: it prints a code and asks you to enter it in the extension (Add agent). Entering the code
+   is your one-time approval of that agent — it can't pair itself.
+4. **Use it.** When the agent hits a login wall it requests a session; you log in in your own Chrome
+   and click Done. The session goes to the agent; your password never does.
+
+Details for each below.
 
 ### Chrome extension
 
@@ -68,6 +84,25 @@ Or install it manually:
 git clone https://github.com/freeflow-community/browser-session-share
 ln -s "$PWD/browser-session-share/skills/browser-auth-handoff" ~/.claude/skills/browser-auth-handoff
 ```
+
+## Security
+
+Sharing a session is sharing a credential, so a few things keep it safe:
+
+- **You log in, not the agent.** You type your password in your own Chrome. The agent never
+  sees your password, only the resulting session (cookies + localStorage) for the origins you approve.
+- **You approve every share.** Nothing leaves your browser until you click Done. The request shows
+  which agent is asking, what task, and which sites, and you can Decline. A built-in denylist blocks
+  sensitive origins (identity providers, banking).
+- **The agent is who it says it is.** You pair each agent once by entering its code and confirming its
+  fingerprint. Every message is signed with that agent's key, so a request is provably from your paired
+  agent and can't be forged or impersonated.
+- **Only your agent can read it.** The session is encrypted end-to-end with the agent's public key
+  (X25519 sealed box). Only that agent can decrypt it.
+- **The relay is untrusted.** It just routes sealed, signed envelopes between you and the agent; it
+  never sees your session or your password and can't forge messages.
+- **You stay in control.** Each agent is separate; revoke any one at any time, from the extension or
+  the CLI, and its access ends immediately.
 
 ## Layout
 

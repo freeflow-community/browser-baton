@@ -30,13 +30,16 @@ human's Chrome extension.
    `HANDOFF="node <this-skill>/scripts/handoff/browser-handoff.mjs"` and use `$HANDOFF` below.
    If `browser-handoff` is already on your `PATH`, use that instead.
 2. Run `$HANDOFF status`. You want a line showing a pairing that is **extension online**.
-   - No pairing, or "not paired" → tell the human: run `browser-handoff pair` where you (the agent)
-     run, then enter the printed code in their Chrome extension. Do not proceed until paired.
+   - No pairing, or "not paired" → pair yourself: run `$HANDOFF pair --name <a short name for
+     yourself>`. It prints a code and blocks. Give the human that code and ask them to enter it in
+     their Browser Session Share extension (Add agent), confirming the fingerprint. The command
+     returns once they accept; then continue. Entering the code is the human's approval of you —
+     you cannot complete pairing on your own, so don't try to.
    - Pairing exists but extension offline → ask the human to open Chrome (the service worker
      reconnects) and confirm the relay is running.
 
-Do not try to start the relay, pair, or drive the human's Chrome yourself. Pairing is a
-deliberate human action.
+Do not start the relay or drive the human's Chrome yourself. You may run `$HANDOFF pair` to begin
+pairing, but only the human can accept it by entering the code.
 
 ## Shared browser
 
