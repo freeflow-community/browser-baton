@@ -38,16 +38,13 @@ human's Chrome extension.
 Do not try to start the relay, pair, or drive the human's Chrome yourself. Pairing is a
 deliberate human action.
 
-## Two modes
+## Shared browser
 
-- **Ephemeral (per run):** each request writes a bundle you import into a fresh browser
-  context, used for that run and discarded. Good for one-off jobs. This is the loop below.
-- **Shared browser (recommended on a persistent box):** one long-lived Chrome with a
-  persistent profile that every agent session attaches to over CDP. Credentials load into it
-  once and stay; agents don't re-import per request. Use this when the same box runs many
-  sessions over time.
+Run one long-lived Chrome with a persistent profile that every agent session attaches to over
+CDP. Credentials load into it once and stay, so agents don't re-import per request — the right
+model for a box that runs many sessions over time.
 
-**Shared browser setup:**
+**Setup:**
 
 ```sh
 $HANDOFF browser start            # one persistent Chrome; prints its CDP endpoint
