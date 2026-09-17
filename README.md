@@ -1,8 +1,15 @@
 # Browser Session Share — MVP
 
-A remote coding agent drives its own browser. When it hits a login wall, a human
-completes the login in their own Chrome and the agent receives a usable session
-for the affected origins. Implements §13 of `browser-session-share-spec.md`.
+Pairs a remote coding agent with your local browser, so that YOU can login for the agent. Your
+logged in session is transmitted securely to the agent which can use it on its own browser to
+access secure websites on your behalf.
+
+When the agent drives a browser and hits a login wall, it signals to YOUR browser requesting
+the login. You login to the site (using your password manager), and then you approve passing
+your session state to the agent for use in its browser. 
+
+A relay process must be web-addressable from both sides. We are running a relay you can use
+(all data through the relay is opaquely encrypted) or you can run your own relay.
 
 <p align="center">
   <img src="docs/extension-popup.png" alt="Browser Session Share extension popup showing agent requests to log into LinkedIn, X, and GitHub, each confirmed by the agent" width="380">
