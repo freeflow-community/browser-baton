@@ -26,8 +26,11 @@ Basic steps:
 
 1. **Install the Chrome extension** in your browser.
 2. **Install the Agent skill** on the machine where your agent runs (it carries the `browser-handoff` CLI).
-3. **Pair your agent to the Chrome extension:** run `browser-handoff pair --name <agent>` and enter the
-   printed code in the extension.
+3. **Pair your agent to the Chrome extension.** The agent does this itself the first time it needs a
+   session: it prints a code and asks you to enter it in the extension (Add agent). Entering the code
+   is your one-time approval of that agent — it can't pair itself.
+4. **Use it.** When the agent hits a login wall it requests a session; you log in in your own Chrome
+   and click Done. The session goes to the agent; your password never does.
 
 Details for each below.
 
