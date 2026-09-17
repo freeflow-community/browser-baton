@@ -73,6 +73,25 @@ git clone https://github.com/freeflow-community/browser-session-share
 ln -s "$PWD/browser-session-share/skills/browser-auth-handoff" ~/.claude/skills/browser-auth-handoff
 ```
 
+## Security
+
+Sharing a session is sharing a credential, so a few things keep it safe:
+
+- **You log in, not the agent.** You type your password in your own Chrome. The agent never
+  sees your password, only the resulting session (cookies + localStorage) for the origins you approve.
+- **You approve every share.** Nothing leaves your browser until you click Done. The request shows
+  which agent is asking, what task, and which sites, and you can Decline. A built-in denylist blocks
+  sensitive origins (identity providers, banking).
+- **The agent is who it says it is.** You pair each agent once by entering its code and confirming its
+  fingerprint. Every message is signed with that agent's key, so a request is provably from your paired
+  agent and can't be forged or impersonated.
+- **Only your agent can read it.** The session is encrypted end-to-end with the agent's public key
+  (X25519 sealed box). Only that agent can decrypt it.
+- **The relay is untrusted.** It just routes sealed, signed envelopes between you and the agent; it
+  never sees your session or your password and can't forge messages.
+- **You stay in control.** Each agent is separate; revoke any one at any time, from the extension or
+  the CLI, and its access ends immediately.
+
 ## Layout
 
 | Path | What |
