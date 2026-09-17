@@ -25,11 +25,9 @@ stores opaque envelopes only. Every envelope is Ed25519-signed by its sender and
 Basic steps:
 
 1. **Install the Chrome extension** in your browser.
-2. **Install the skill + CLI** on the machine where your agent runs.
-3. **Pair the agent** with the extension: run `browser-handoff pair --name <agent>` and enter the
+2. **Install the Agent skill** on the machine where your agent runs (it carries the `browser-handoff` CLI).
+3. **Pair your agent to the Chrome extension:** run `browser-handoff pair --name <agent>` and enter the
    printed code in the extension.
-4. **Use it:** run your agent — when it hits a login wall it requests a session, and you log in in
-   your Chrome and click Done.
 
 Details for each below.
 
