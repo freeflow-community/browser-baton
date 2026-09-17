@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// browser-handoff — Session Handoff CLI (spec §8, §13).
+// browser-handoff — Browser Session Share CLI (spec §8, §13).
 //
 //   browser-handoff pair --name NAME [--relay URL]
 //   browser-handoff request --origins a,b [--hint URL] [--label TEXT] [--timeout 30m] [--out FILE]
@@ -143,7 +143,7 @@ async function cmdPair(values) {
   log(`  Agent:         ${display_name}  [${fingerprint(identity.enc_pk)}]`);
   log(`  Expires:       ${new Date(begin.expires_at * 1000).toLocaleTimeString()}`);
   log('');
-  log('Enter the code in the Session Handoff extension. Waiting…');
+  log('Enter the code in the Browser Session Share extension. Waiting…');
 
   for (;;) {
     const r = await relay.waitPairing(code, POLL_WAIT_S);

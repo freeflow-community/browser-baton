@@ -1,4 +1,4 @@
-// Session Handoff relay — MVP (spec §10, §13).
+// Browser Session Share relay — MVP (spec §10, §13).
 //
 // Single process. In-memory pairing table and per-pairing message queues,
 // optionally snapshotted to a JSON file so a relay restart does not force

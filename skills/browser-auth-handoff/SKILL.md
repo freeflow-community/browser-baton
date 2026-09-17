@@ -1,9 +1,9 @@
 ---
 name: browser-auth-handoff
-description: When you are driving a browser and get blocked by a login or authentication wall you cannot pass on your own — a password or OTP form, an SSO/OAuth redirect, a "verify it's you" checkpoint, or a 401/403 on a page that needs a signed-in session — get a real logged-in session from the paired human's own Chrome through the Session Handoff relay, import it into your browser context, and continue. The human logs in in their browser; you never see their password. Use whenever automated browsing stalls at authentication and you have a Session Handoff pairing available.
+description: When you are driving a browser and get blocked by a login or authentication wall you cannot pass on your own — a password or OTP form, an SSO/OAuth redirect, a "verify it's you" checkpoint, or a 401/403 on a page that needs a signed-in session — get a real logged-in session from the paired human's own Chrome through the Browser Session Share relay, import it into your browser context, and continue. The human logs in in their browser; you never see their password. Use whenever automated browsing stalls at authentication and you have a Browser Session Share pairing available.
 ---
 
-# Getting through auth walls with Session Handoff
+# Getting through auth walls with Browser Session Share
 
 You drive a browser (Playwright, Puppeteer, the `chrome-devtools` MCP, `claude-in-chrome`,
 or anything else). When you hit a wall you cannot pass — because it needs a human to type a

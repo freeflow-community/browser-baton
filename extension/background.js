@@ -1,4 +1,4 @@
-// Session Handoff — extension service worker (spec §7, §13).
+// Browser Session Share — extension service worker (spec §7, §13).
 //
 // Holds one pairing, keeps a WebSocket to the relay, turns `needs_session`
 // into a badge + notification, and on "Done" exports cookies + localStorage
@@ -346,7 +346,7 @@ async function onReport(pairingId, p) {
   const who = r ? r.agent_name : 'Agent';
   const text = p.ok ? `${who} reports the session worked` : `${who} reports failure: ${p.reason || 'unspecified'}`;
   await appendLog({ kind: 'report', request_id: p.request_id, origins: r?.origins, ok: Boolean(p.ok), text });
-  notify(`report-${p.request_id}`, p.ok ? '✓︎ Session handoff worked' : '✗︎ Session handoff failed', p.ok ? (r?.origins || []).join(', ') : p.reason || 'unspecified');
+  notify(`report-${p.request_id}`, p.ok ? '✓︎ Session shared' : '✗︎ Session share failed', p.ok ? (r?.origins || []).join(', ') : p.reason || 'unspecified');
 }
 
 function notify(id, title, message) {
@@ -767,7 +767,7 @@ function renderHandoffPanel(data) {
       .x{margin-left:auto;background:none;border:none;color:#9aa3ad;cursor:pointer;font-size:18px;line-height:1;flex:none;width:auto;padding:0 2px}
     </style>
     <div class="card">
-      <div class="hd"><span class="dot"></span><b>Session Handoff</b><span class="agent"></span>
+      <div class="hd"><span class="dot"></span><b>Browser Session Share</b><span class="agent"></span>
         <button class="x" title="Hide" aria-label="Hide">×</button></div>
       <div class="bd">
         <div class="lbl"></div>

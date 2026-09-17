@@ -1,4 +1,4 @@
-// Reusable importer: apply a Session Handoff bundle (spec §6) to a Playwright
+// Reusable importer: apply a Browser Session Share bundle (spec §6) to a Playwright
 // browser context. Import as a library, or run directly to verify a bundle.
 //
 //   import { newContextFromBundle, importIntoContext, bundleCookies } from './import-bundle.mjs'

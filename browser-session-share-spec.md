@@ -1,4 +1,4 @@
-# Session Handoff — Protocol Specification
+# Browser Session Share — Protocol Specification
 
 Version 0.1 — Draft
 

@@ -1,8 +1,8 @@
 {
-  "name": "browser-baton",
+  "name": "browser-session-share",
   "private": true,
   "version": "0.1.0",
-  "description": "Session Handoff MVP: hand a browser session from a human's Chrome to a remote agent through a relay",
+  "description": "Browser Session Share MVP: hand a browser session from a human's Chrome to a remote agent through a relay",
   "type": "module",
   "workspaces": [
     "relay",

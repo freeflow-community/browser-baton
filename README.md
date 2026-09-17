@@ -1,8 +1,8 @@
-# Session Handoff — MVP
+# Browser Session Share — MVP
 
 A remote coding agent drives its own browser. When it hits a login wall, a human
 completes the login in their own Chrome and the agent receives a usable session
-for the affected origins. Implements §13 of `session-handoff-spec.md`.
+for the affected origins. Implements §13 of `browser-session-share-spec.md`.
 
 ```
  agent (any browser driver)   relay (this repo)          human's Chrome
@@ -21,12 +21,12 @@ stores opaque envelopes only. Every envelope is Ed25519-signed by its sender and
 ### Chrome extension
 
 The extension is prebuilt at [`dist/browser-handoff-extension.zip`](dist/browser-handoff-extension.zip)
-([direct download](https://github.com/freeflow-community/browser-baton/raw/main/dist/browser-handoff-extension.zip)).
+([direct download](https://github.com/freeflow-community/browser-session-share/raw/main/dist/browser-handoff-extension.zip)).
 
 1. Download and unzip it into a folder you'll keep (the extension runs from that folder).
 2. Open `chrome://extensions`, turn on **Developer mode** (top right).
 3. Click **Load unpacked** and select the unzipped folder.
-4. Pin the **Session Handoff** icon. It defaults to the hosted relay
+4. Pin the **Browser Session Share** icon. It defaults to the hosted relay
    `https://browser-relay.freeflow.im`, so no configuration is needed.
 5. Pair it with an agent: get a code from `browser-handoff pair --name <agent>` (below), open the
    extension, **Add agent**, and enter the code.
@@ -41,19 +41,19 @@ installing the skill is the whole agent-side install (no `npm install`; crypto i
 Quickest, if you have the skill CLI:
 
 ```sh
-npx skill add freeflow-community/browser-baton
+npx skill add freeflow-community/browser-session-share
 ```
 
 **Or, copy this prompt into your coding agent** (Claude Code, etc.):
 
 ```text
-Install the "browser-auth-handoff" skill from https://github.com/freeflow-community/browser-baton
+Install the "browser-auth-handoff" skill from https://github.com/freeflow-community/browser-session-share
 so you can hand off authenticated browser sessions from a human's Chrome:
 
-1. Clone the repo (git clone https://github.com/freeflow-community/browser-baton), or git pull if
+1. Clone the repo (git clone https://github.com/freeflow-community/browser-session-share), or git pull if
    you already have it.
 2. Symlink its skill into your skills directory, e.g.:
-   ln -s "$PWD/browser-baton/skills/browser-auth-handoff" ~/.claude/skills/browser-auth-handoff
+   ln -s "$PWD/browser-session-share/skills/browser-auth-handoff" ~/.claude/skills/browser-auth-handoff
 3. The CLI is embedded at skills/browser-auth-handoff/scripts/handoff/browser-handoff.mjs and runs
    on Node with no install. Read the skill's SKILL.md and follow it.
 4. Start the shared browser (browser-handoff browser start) and attach over its CDP endpoint; when
@@ -65,8 +65,8 @@ Then confirm the skill is installed and summarize how you'll use it.
 Or install it manually:
 
 ```sh
-git clone https://github.com/freeflow-community/browser-baton
-ln -s "$PWD/browser-baton/skills/browser-auth-handoff" ~/.claude/skills/browser-auth-handoff
+git clone https://github.com/freeflow-community/browser-session-share
+ln -s "$PWD/browser-session-share/skills/browser-auth-handoff" ~/.claude/skills/browser-auth-handoff
 ```
 
 ## Layout
